@@ -1,0 +1,278 @@
+import type { SimpleMessage, SimpleResult, SimpleStreamOptions, ToolDefinition, Usage } from '../llm/model.js'
+import type { JsonSchema, TonyTool, ToolCall } from '../types.js'
+import { AgentMessage } from './messages.js'
+
+export type AgentEventType =
+  | 'agent_start'
+  | 'run_start'
+  | 'turn_start'
+  | 'stream_assistant'
+  | 'tool_started'
+  | 'tool_result'
+  | 'turn_end'
+  | 'agent_end'
+  | 'run_end'
+
+export interface AgentEvent {
+  type: AgentEventType
+  sessionId?: string
+  runId?: string
+  turnId?: number
+  text?: string
+  toolCall?: ToolCall
+  toolResult?: { toolCallId: string; content: string; isError?: boolean }
+  usage?: Usage
+  error?: unknown
+  aborted?: boolean
+}
+
+export type EventHandler = (event: AgentEvent) => void
+
+export interface AgentHooks {
+  beforeToolCall?: (call: ToolCall, context: { sessionId: string }) => Promise<void> | void
+  afterToolCall?: (call: ToolCall, result: { content: string; isError?: boolean }, context: { sessionId: string }) => Promise<void> | void
+  shouldStopAfterTurn?: (context: { turnId: number }) => Promise<boolean> | boolean
+  prepareNextTurn?: (context: { turnId: number }) => Promise<void> | void
+  transformContext?: (context: { messages: SimpleMessage[]; sessionId: string }) => Promise<SimpleMessage[]> | SimpleMessage[]
+}
+
+export type PendingMessageQueueOptions = { type: 'one-at-a-time' } | { type: 'all' }
+
+export interface AgentOptions {
+  complete: (request: { messages: SimpleMessage[]; tools?: ToolDefinition[] }, options: SimpleStreamOptions) => Promise<SimpleResult>
+  tools?: Map<string, TonyTool>
+  hooks?: AgentHooks
+  toolBatchMode?: 'sequential' | 'parallel'
+  maxTurns?: number
+  maxToolCalls?: number
+  sessionId?: string
+  systemPrompt?: string
+  stream?: (delta: string) => void
+}
+
+export interface RunOutcome {
+  text: string
+  toolCalls: number
+  turns: number
+  aborted: boolean
+  usage?: Usage
+}
+
+interface PendingMessage {
+  text: string
+  message: AgentMessage
+}
+
+const EVENT_ORDER: AgentEventType[] = ['agent_start', 'run_start', 'turn_start', 'stream_assistant', 'tool_started', 'tool_result', 'turn_end', 'agent_end', 'run_end']
+
+/**
+ * Stateful agent harness mirroring pi-agent-core's `Agent`:
+ * owns a transcript, emits lifecycle events, supports steering/follow-up
+ * queues, hooks, sequential or parallel tool batches, and abort.
+ */
+export class Agent {
+  private readonly complete: AgentOptions['complete']
+  private readonly tools: Map<string, TonyTool>
+  private readonly hooks: AgentHooks
+  private readonly toolBatchMode: 'sequential' | 'parallel'
+  private readonly maxTurns: number
+  private readonly maxToolCalls: number
+  private readonly sessionId: string
+  private readonly systemPrompt?: string
+  private readonly stream?: (delta: string) => void
+
+  private readonly handlers: EventHandler[] = []
+  private transcript: AgentMessage[] = []
+  private pendingQueue: PendingMessage[] = []
+  private pendingMode: PendingMessageQueueOptions = { type: 'one-at-a-time' }
+  private aborted = false
+  private activeRun: Promise<RunOutcome> | null = null
+
+  constructor(options: AgentOptions) {
+    this.complete = options.complete
+    this.tools = options.tools ?? new Map()
+    this.hooks = options.hooks ?? {}
+    this.toolBatchMode = options.toolBatchMode ?? 'sequential'
+    this.maxTurns = options.maxTurns ?? 10
+    this.maxToolCalls = options.maxToolCalls ?? 50
+    this.sessionId = options.sessionId ?? 'session'
+    this.systemPrompt = options.systemPrompt
+    this.stream = options.stream
+  }
+
+  on(handler: EventHandler): void
+  on(eventName: 'event', handler: EventHandler): void
+  on(eventNameOrHandler: 'event' | EventHandler, maybeHandler?: EventHandler): void {
+    if (typeof eventNameOrHandler === 'function') {
+      this.handlers.push(eventNameOrHandler)
+    } else if (maybeHandler) {
+      this.handlers.push(maybeHandler)
+    }
+  }
+
+  private emit(event: AgentEvent): void {
+    for (const handler of this.handlers) handler(event)
+  }
+
+  getTranscript(): AgentMessage[] {
+    return this.transcript
+  }
+
+  setTranscript(messages: AgentMessage[]): void {
+    this.transcript = [...messages]
+  }
+
+  steer(text: string): void {
+    this.pendingQueue.push({ text, message: AgentMessage.from('user', { content: text }) })
+  }
+
+  followUp(generator: () => string): void {
+    this.pendingQueue.push({ text: generator(), message: AgentMessage.from('user', { content: generator() }) })
+  }
+
+  abort(): void {
+    this.aborted = true
+  }
+
+  async run(userInput: string, options: PendingMessageQueueOptions = { type: 'one-at-a-time' }): Promise<RunOutcome> {
+    if (this.activeRun) return this.activeRun
+    this.pendingMode = options
+    this.aborted = false
+    this.pendingQueue = [{ text: userInput, message: AgentMessage.from('user', { content: userInput }) }]
+    this.emit({ type: 'agent_start', sessionId: this.sessionId })
+    this.emit({ type: 'run_start', sessionId: this.sessionId })
+    const runId = crypto.randomUUID()
+    this.activeRun = this.loop(runId).finally(() => {
+      this.activeRun = null
+      this.emit({ type: 'run_end', sessionId: this.sessionId, runId })
+    })
+    return this.activeRun
+  }
+
+  private async loop(runId: string): Promise<RunOutcome> {
+    let turns = 0
+    let toolCalls = 0
+    let totalUsage: Usage | undefined
+    let finalText = ''
+
+    while (!this.aborted) {
+      turns += 1
+      if (turns > this.maxTurns) break
+      this.emit({ type: 'turn_start', sessionId: this.sessionId, runId, turnId: turns })
+
+      // drain one or all pending messages depending on mode
+      const toProcess = this.pendingMode.type === 'all' ? this.pendingQueue.splice(0) : this.pendingQueue.splice(0, 1)
+      for (const pending of toProcess) {
+        this.transcript.push(pending.message)
+      }
+      const wireMessages = AgentMessage.toWire(this.transcript)
+
+      const hookContext = { sessionId: this.sessionId }
+      let finalMessages = wireMessages
+      if (this.hooks.transformContext) {
+        finalMessages = await this.hooks.transformContext({ messages: finalMessages, sessionId: this.sessionId })
+      }
+      if (this.systemPrompt && finalMessages[0]?.role !== 'system') {
+        finalMessages = [{ role: 'system', content: this.systemPrompt }, ...finalMessages]
+      }
+
+      const toolDefs: ToolDefinition[] = Array.from(this.tools.values()).map((tool) => ({
+        type: 'function',
+        function: { name: tool.name, description: tool.description, parameters: tool.parameters },
+      }))
+
+      const streamOptions: SimpleStreamOptions = {
+        sessionId: this.sessionId,
+        signal: this.abortSignal(),
+      }
+      if (this.stream) streamOptions.onTextDelta = this.stream
+
+      const result: SimpleResult = await this.complete({ messages: finalMessages, tools: toolDefs.length > 0 ? toolDefs : undefined }, streamOptions)
+      if (result.usage) {
+        totalUsage = {
+          input: (totalUsage?.input ?? 0) + result.usage.input,
+          output: (totalUsage?.output ?? 0) + result.usage.output,
+          cacheRead: (totalUsage?.cacheRead ?? 0) + result.usage.cacheRead,
+          cacheWrite: (totalUsage?.cacheWrite ?? 0) + result.usage.cacheWrite,
+          totalTokens: (totalUsage?.totalTokens ?? 0) + result.usage.totalTokens,
+        }
+      }
+
+      if (result.text) {
+        finalText = result.text
+        this.transcript.push(AgentMessage.from('assistant', { content: [{ type: 'text', text: result.text }], toolCalls: result.toolCalls ?? [], usage: result.usage, stopReason: result.stopReason }))
+        this.emit({ type: 'stream_assistant', sessionId: this.sessionId, runId, turnId: turns, text: result.text, usage: result.usage })
+      }
+
+      // execute tool calls
+      if (result.toolCalls && result.toolCalls.length > 0) {
+        if (result.stopReason === 'length') {
+          // truncated tool call — do not execute
+          this.transcript.push(AgentMessage.from('toolResult', { toolCallId: result.toolCalls[0]?.id ?? 'unknown', name: result.toolCalls[0]?.name ?? 'unknown', content: 'Tool call truncated (length stop). Not executed.', isError: true }))
+          break
+        }
+        const incoming = result.toolCalls.length
+        if (toolCalls + incoming > this.maxToolCalls) {
+          // do not execute beyond the budget
+          break
+        }
+        toolCalls += incoming
+
+        if (this.toolBatchMode === 'parallel') {
+          await this.executeParallel(result.toolCalls, runId, turns)
+        } else {
+          for (const call of result.toolCalls) {
+            if (this.aborted) break
+            await this.executeSingle(call, runId, turns)
+          }
+        }
+      } else {
+        // no tools this turn — agent turn complete unless pending
+        this.emit({ type: 'turn_end', sessionId: this.sessionId, runId, turnId: turns })
+        if (this.hooks.shouldStopAfterTurn && (await this.hooks.shouldStopAfterTurn({ turnId: turns }))) break
+        if (this.pendingQueue.length === 0) break
+      }
+    }
+
+    this.emit({ type: 'agent_end', sessionId: this.sessionId, runId, aborted: this.aborted })
+    return { text: finalText, toolCalls, turns, aborted: this.aborted, usage: totalUsage }
+  }
+
+  private abortSignal(): AbortSignal {
+    const controller = new AbortController()
+    const poll = setInterval(() => {
+      if (this.aborted) controller.abort()
+    }, 50)
+    setTimeout(() => clearInterval(poll), 1000 * 60 * 10)
+    return controller.signal
+  }
+
+  private async executeSingle(call: ToolCall, runId: string, turnId: number): Promise<void> {
+    const tool = this.tools.get(call.name)
+    this.emit({ type: 'tool_started', sessionId: this.sessionId, runId, turnId, toolCall: call })
+    if (!tool) {
+      const result = { content: `Unknown tool: ${call.name}`, isError: true }
+      this.transcript.push(AgentMessage.from('toolResult', { toolCallId: call.id, name: call.name, content: result.content, isError: true }))
+      this.emit({ type: 'tool_result', sessionId: this.sessionId, runId, turnId, toolResult: { toolCallId: call.id, content: result.content, isError: true } })
+      return
+    }
+    if (this.hooks.beforeToolCall) await this.hooks.beforeToolCall(call, { sessionId: this.sessionId })
+    let result: { content: string; isError?: boolean }
+    try {
+      const args = typeof call.arguments === 'string' ? (JSON.parse(call.arguments) as Record<string, unknown>) : call.arguments
+      const toolResult = await tool.execute(args, { signal: this.abortSignal(), sessionId: this.sessionId, metadata: {} })
+      result = { content: toolResult.content, isError: toolResult.isError }
+    } catch (error) {
+      result = { content: `Tool error: ${String(error)}`, isError: true }
+    }
+    if (this.hooks.afterToolCall) await this.hooks.afterToolCall(call, result, { sessionId: this.sessionId })
+    this.transcript.push(AgentMessage.from('toolResult', { toolCallId: call.id, name: call.name, content: result.content, isError: result.isError }))
+    this.emit({ type: 'tool_result', sessionId: this.sessionId, runId, turnId, toolResult: { toolCallId: call.id, content: result.content, isError: result.isError } })
+  }
+
+  private async executeParallel(calls: ToolCall[], runId: string, turnId: number): Promise<void> {
+    await Promise.all(calls.map((call) => this.executeSingle(call, runId, turnId)))
+  }
+}
+
+void EVENT_ORDER

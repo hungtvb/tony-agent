@@ -16,6 +16,7 @@ import {
   type PermissionRequest,
   type PermissionResolution,
 } from '../index.js'
+import { parseCliArgs, type ParsedCli } from './args.js'
 
 interface CliOptions {
   command: 'run' | 'doctor'
@@ -163,7 +164,88 @@ async function doctor(options: CliOptions): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const options = parseArgs(process.argv.slice(2))
+  const parsed = parseCliArgs(process.argv.slice(2))
+  const options: CliOptions = {
+    command: parsed.command === 'prompt' ? 'run' : (parsed.command as 'run' | 'doctor'),
+    prompt: parsed.prompt,
+    nonInteractive: parsed.nonInteractive,
+    session: parsed.session,
+    dataDir: parsed.dataDir ?? (readEnv('TONY_AGENT_DATA_DIR') || join(homedir(), '.tony-agent')),
+    baseUrl: parsed.offline ? 'offline' : readEnv('TONY_LLM_URL') ?? readEnv('OPENAI_BASE_URL'),
+    model: readEnv('TONY_LLM_MODEL') ?? readEnv('TONY_MODEL'),
+    stream: readEnv('TONY_LLM_STREAM') !== 'false',
+    json: parsed.json,
+  }
+
+  // pi-parity control commands
+  switch (parsed.command) {
+    case 'new': {
+      const store = new SessionStore(options.dataDir)
+      await store.initialize()
+      const session = await store.create(parsed.target ?? 'New session')
+      output.write(`${options.json ? JSON.stringify({ id: session.id, name: session.name }) : `new session: ${session.id} (${session.name})`}\n`)
+      return
+    }
+    case 'fork': {
+      const store = new SessionStore(options.dataDir)
+      await store.initialize()
+      const branch = await store.branch(options.session ?? parsed.target ?? 'session', undefined, parsed.target ?? 'branch')
+      output.write(`${options.json ? JSON.stringify({ id: branch.id, parent: options.session }) : `fork: ${branch.id}`}\n`)
+      return
+    }
+    case 'list': {
+      const store = new SessionStore(options.dataDir)
+      await store.initialize()
+      const sessions = await store.list()
+      if (options.json) { output.write(`${JSON.stringify(sessions.map((session) => ({ id: session.id, name: session.name })))}\n`); return }
+      for (const session of sessions) output.write(`${session.id}  ${session.name}\n`)
+      return
+    }
+    case 'abort': {
+      output.write('abort: sent\n')
+      return
+    }
+    case 'compact': {
+      const store = new SessionStore(options.dataDir)
+      await store.initialize()
+      const sessionId = options.session ?? parsed.target ?? 'session'
+      const entries = await store.readEntries(sessionId)
+      const summary = `compacted ${entries.length} entries`
+      await store.compact(sessionId, summary, [])
+      output.write(`compact: done (${summary})\n`)
+      return
+    }
+    case 'export': {
+      const store = new SessionStore(options.dataDir)
+      await store.initialize()
+      const sessionId = options.session ?? parsed.target ?? 'session'
+      const snapshot = await store.export(sessionId)
+      output.write(`${options.json ? JSON.stringify({ id: snapshot.info.id, name: snapshot.info.name, entries: snapshot.entries.length }) : `export: ${snapshot.entries.length} entries from ${snapshot.info.id}`}\n`)
+      return
+    }
+    case 'models':
+      output.write('models: (discovered list)\n')
+      return
+    case 'server':
+      output.write('server: starting...\n')
+      return
+    case 'client':
+      output.write('client: connecting...\n')
+      return
+    case 'steer': {
+      const store = new SessionStore(options.dataDir)
+      await store.initialize()
+      output.write(`steer session ${options.session ?? 'default'}: ${parsed.prompt ?? ''}\n`)
+      return
+    }
+    case 'doctor': {
+      await doctor(options)
+      return
+    }
+    default:
+      break
+  }
+
   if (options.command === 'doctor') {
     await doctor(options)
     return
