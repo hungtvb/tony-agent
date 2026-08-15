@@ -1,0 +1,2 @@
+export { createOpenAiCompletionsApi, createAnthropicMessagesApi, createOpenRouterApi, createVercelGatewayApi } from './openai-completions.js'
+export type { ProviderOptions, OpenAiCompletionsOptions } from './openai-completions.js'
