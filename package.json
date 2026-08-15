@@ -1,0 +1,49 @@
+{
+  "name": "tony-agent",
+  "version": "0.1.0",
+  "description": "Tony Agent — self-built, browser-native AI agent runtime (agent loop, tools, permissions, sessions).",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "tony-agent": "./dist/cli/main.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx src/cli/demo.ts",
+    "demo": "tsx src/cli/demo.ts",
+    "cli": "tsx src/cli/main.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "agent",
+    "ai",
+    "browser",
+    "tool-calling",
+    "llm"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.9"
+  }
+}
