@@ -1,12 +1,14 @@
 # Tony Agent
 
-Self-built, browser-native AI agent runtime. No agent harness dependency — the agent loop, LLM transport, tool system, permission policy, and persistent sessions are all implemented in this repository.
+Self-built, browser-native AI agent runtime. No agent harness dependency — the agent loop, LLM transport, tool system, permission policy, durable sessions, and remote protocol are all implemented in this repository. v0.2.0 reaches pi-agent breadth across the LLM layer, stateful agent harness, session backends, coding tools, and CLI.
 
+- **Unified LLM layer** — `Models`/`Api` abstraction with provider adapters (OpenAI-compatible, Anthropic, OpenRouter, Vercel gateway), model discovery, and a credential store that keeps secret values memory-only (redacted on disk).
 - **Agent loop** — bounded LLM → tool → result loop with streaming deltas, per-turn and per-run limits, loop detection, abort, and event stream.
-- **LLM transport** — OpenAI-compatible `/chat/completions` with native tool calls, JSON tool-call fallback, SSE streaming, retries, and abort.
-- **Tools** — typed registry with Zod input validation; 27 built-in browser tools across read/light/risky/blocked risk levels.
+- **Stateful harness** — `Agent` class with hooks (`beforeToolCall`/`afterToolCall`/`transformContext`), steering/follow-up queues, sequential + parallel tool batches, loop guards.
+- **Durable sessions** — entry model with lanes; JSONL repo (atomic writes, branching, corruption-tolerant) and SQLite backend; compaction + branch summarization; `AgentHarness` with crash recovery.
+- **Tools** — typed registry with Zod input validation; 27 built-in browser tools across read/light/risky/blocked risk levels; coding toolset (write/read/edit/ls/grep/find) confined to a workspace root.
 - **Permissions** — per-tool/site policy: `allow` / `confirm` / `deny`, allow-once vs allow-session, fail-closed.
-- **Sessions** — append-only JSONL store with atomic index writes, branching, compaction summaries, and export.
+- **Remote protocol** — framed CBOR (4-byte length + CBOR body) with `TonyServer`/`TonyClient` for remote sessions.
 - **Hosts** — Electron-free core; `PageAdapter` interface plus a working CDP adapter for Chromium/Electron targets.
 
 ## Install
@@ -38,9 +40,20 @@ npm run cli -- doctor
 
 # Machine-readable output
 npm run cli -- run --offline -p "hi" --json
+
+# Pi-parity session commands
+npm run cli -- new my-session
+npm run cli -- list --json
+npm run cli -- prompt "write a readme" -s <session-id>
+npm run cli -- steer -s <session-id> "more detail please"
+npm run cli -- fork <branch-name> -s <session-id>
+npm run cli -- compact -s <session-id>
+npm run cli -- export -s <session-id>
 ```
 
-Flags: `-p/--prompt`, `--session`, `--data-dir`, `--base-url`, `--api-key`, `--model`, `--max-turns`, `--non-interactive`, `--offline`, `--no-stream`, `--json`.
+Flags: `-p/--prompt`, `-s/--session`, `--data-dir`, `--base-url`, `--api-key`, `--model`, `--max-turns`, `--non-interactive`, `--offline`, `--no-stream`, `--json`.
+
+Commands: `run`, `prompt`, `new`, `steer`, `abort`, `fork`, `compact`, `export`, `switch`, `list`, `get`, `clone`, `set`, `cycle`, `server`, `client`, `models`, `doctor`.
 
 Environment: `TONY_LLM_URL`, `TONY_LLM_MODEL`, `TONY_LLM_KEY`, `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `TONY_AGENT_DATA_DIR`.
 
