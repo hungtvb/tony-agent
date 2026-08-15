@@ -50,11 +50,13 @@ export interface Usage {
   reasoning?: number
 }
 
-export type Role = 'user' | 'assistant' | 'toolResult'
+export type Role = 'system' | 'user' | 'assistant' | 'toolResult'
 
 export interface SimpleMessage {
   role: Role
   content: string | SimpleContent[]
+  usage?: Usage
+  stopReason?: StopReason
 }
 
 export interface ToolDefinition {
