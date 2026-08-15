@@ -1,8 +1,14 @@
-import Database from 'better-sqlite3'
+import { createRequire } from 'node:module'
 import type { Entry } from './types.js'
 import type { Session } from './jsonl/repo.js'
 
 const SAFE_ID = /^[a-z0-9_-]{1,128}$/
+
+const require = createRequire(import.meta.url)
+// better-sqlite3 is a CJS native addon; require() avoids esModuleInterop concerns
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const BetterSqlite3 = require('better-sqlite3') as typeof import('better-sqlite3')
+type SqliteDatabase = InstanceType<typeof BetterSqlite3>
 
 function safeId(id: string): void {
   if (!SAFE_ID.test(id)) throw new Error(`Invalid session id: ${id}`)
@@ -15,11 +21,11 @@ function safeId(id: string): void {
  */
 export class SqliteSessionRepo {
   readonly directory: string
-  private readonly db: Database.Database
+  private readonly db: SqliteDatabase
 
   constructor(dbPath: string) {
     this.directory = dbPath
-    const db = new Database(dbPath)
+    const db = new BetterSqlite3(dbPath)
     db.pragma('journal_mode = WAL')
     db.pragma('busy_timeout = 5000')
     db.exec(`
