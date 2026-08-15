@@ -140,7 +140,7 @@ export function createAnthropicMessagesApi(options: ProviderOptions): Api {
         usage: usage
           ? { input: typeof usage.input_tokens === 'number' ? usage.input_tokens : 0, output: typeof usage.output_tokens === 'number' ? usage.output_tokens : 0, cacheRead: typeof usage.cache_read_input_tokens === 'number' ? usage.cache_read_input_tokens : 0, cacheWrite: 0, totalTokens: (typeof usage.input_tokens === 'number' ? usage.input_tokens : 0) + (typeof usage.output_tokens === 'number' ? usage.output_tokens : 0) }
           : undefined,
-        stopReason: json.stop_reason === 'end_turn' ? 'end_turn' : json.stop_reason === 'max_tokens' ? 'max_tokens' : 'stop',
+        stopReason: json.stop_reason === 'end_turn' ? 'end_turn' : json.stop_reason === 'max_tokens' ? 'max_tokens' : json.stop_reason === 'tool_use' ? 'tool_calls' : 'stop',
       }
     },
   }
