@@ -17,11 +17,11 @@ describe('framed CBOR protocol', () => {
     ]
     const stream = Buffer.concat(messages.map((message) => encodeFrame(message)))
     const decoded: ProtocolMessage[] = []
-    let buffer = stream
+    let buffer: Buffer = stream
     for (let i = 0; i < 2; i += 1) {
       const [message, rest] = decodeFrame(buffer)
       decoded.push(message!)
-      buffer = rest
+      buffer = rest as Buffer
     }
     expect(decoded).toHaveLength(2)
     expect(decoded[0]?.kind).toBe('event')
@@ -35,11 +35,13 @@ describe('framed CBOR protocol', () => {
     expect(decoded).toBeNull()
   })
 
-  it('throws on a truncated frame body (length claims more than available)', () => {
+  it('returns null for an incomplete body (length claims more than available) — waits for more bytes, does not throw', () => {
     const frame = encodeFrame({ kind: 'command', payload: { type: 'abort' } })
     // keep the 4-byte length header, corrupt the body to be too short
     const broken = Buffer.concat([frame.subarray(0, 4), Buffer.from([0x01])])
-    expect(() => decodeFrame(broken)).toThrow()
+    const [decoded, rest] = decodeFrame(broken)
+    expect(decoded).toBeNull()
+    expect(rest.length).toBe(broken.length)
   })
 
   it('round-trips through encodeProtocolMessage helper', () => {

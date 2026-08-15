@@ -212,8 +212,27 @@ export class Agent {
           break
         }
         const incoming = result.toolCalls.length
-        if (toolCalls + incoming > this.maxToolCalls) {
-          // do not execute beyond the budget
+        const budgetLeft = this.maxToolCalls - toolCalls
+        if (incoming > budgetLeft) {
+          // execute only what fits the remaining budget; answer the rest with a
+          // toolResult so the transcript stays balanced (no dangling toolCall)
+          const toExecute = result.toolCalls.slice(0, budgetLeft)
+          const skipped = result.toolCalls.slice(budgetLeft)
+          for (const call of skipped) {
+            this.transcript.push(AgentMessage.from('toolResult', { toolCallId: call.id, name: call.name, content: 'Tool call not executed: max tool calls reached.', isError: true }))
+          }
+          if (toExecute.length > 0) {
+            toolCalls += toExecute.length
+            if (this.toolBatchMode === 'parallel') {
+              await this.executeParallel(toExecute, runId, turns)
+            } else {
+              for (const call of toExecute) {
+                if (this.aborted) break
+                await this.executeSingle(call, runId, turns)
+              }
+            }
+          }
+          this.emit({ type: 'turn_end', sessionId: this.sessionId, runId, turnId: turns })
           break
         }
         toolCalls += incoming
@@ -243,7 +262,11 @@ export class Agent {
     const poll = setInterval(() => {
       if (this.aborted) controller.abort()
     }, 50)
-    setTimeout(() => clearInterval(poll), 1000 * 60 * 10)
+    // clear the poll as soon as the signal fires OR after a bounded window —
+    // never leave intervals alive for the life of the process
+    const cleanup = (): void => clearInterval(poll)
+    controller.signal.addEventListener('abort', cleanup, { once: true })
+    setTimeout(cleanup, 1000 * 60 * 2)
     return controller.signal
   }
 

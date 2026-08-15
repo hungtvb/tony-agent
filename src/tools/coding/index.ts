@@ -24,7 +24,7 @@ export function createCodingTools(workspace: string): TonyTool<any>[] {
     parameters: schema({ path: stringProp('Relative path inside workspace'), content: stringProp('Full file content') }, ['path', 'content']),
     async execute(input: { path: string; content: string }) {
       try {
-        const target = resolveSafePath(workspace, input.path)
+        const target = (await resolveSafePath(workspace, input.path))
         await writeFile(target, input.content, 'utf8')
         return { content: `Wrote ${input.path} (${input.content.length} chars)` }
       } catch (error) {
@@ -41,7 +41,7 @@ export function createCodingTools(workspace: string): TonyTool<any>[] {
     parameters: schema({ path: stringProp('Relative path inside workspace') }, ['path']),
     async execute(input: { path: string }) {
       try {
-        const target = resolveSafePath(workspace, input.path)
+        const target = (await resolveSafePath(workspace, input.path))
         const content = await readFile(target, 'utf8')
         return { content }
       } catch (error) {
@@ -58,7 +58,7 @@ export function createCodingTools(workspace: string): TonyTool<any>[] {
     parameters: schema({ path: stringProp('Relative path'), oldString: stringProp('Exact text to replace'), newString: stringProp('Replacement text') }, ['path', 'oldString', 'newString']),
     async execute(input: { path: string; oldString: string; newString: string }) {
       try {
-        const target = resolveSafePath(workspace, input.path)
+        const target = (await resolveSafePath(workspace, input.path))
         const content = await readFile(target, 'utf8')
         if (!content.includes(input.oldString)) {
           return { content: `Error: oldString not found in ${input.path}`, isError: true }
@@ -80,7 +80,7 @@ export function createCodingTools(workspace: string): TonyTool<any>[] {
     parameters: schema({ path: stringProp('Relative path (default .)') }, ['path']),
     async execute(input: { path: string }) {
       try {
-        const target = resolveSafePath(workspace, input.path)
+        const target = (await resolveSafePath(workspace, input.path))
         const entries = await readdir(target)
         return { content: entries.join('\n') || '(empty)' }
       } catch (error) {
@@ -97,7 +97,7 @@ export function createCodingTools(workspace: string): TonyTool<any>[] {
     parameters: schema({ pattern: stringProp('Regex pattern'), path: stringProp('Relative path (default .)') }, ['pattern']),
     async execute(input: { pattern: string; path?: string }) {
       try {
-        const target = resolveSafePath(workspace, input.path ?? '.')
+        const target = (await resolveSafePath(workspace, input.path ?? '.'))
         const regex = new RegExp(input.pattern)
         const matches: string[] = []
         await walk(target, async (file) => {
@@ -121,7 +121,7 @@ export function createCodingTools(workspace: string): TonyTool<any>[] {
     parameters: schema({ pattern: stringProp('File name substring'), path: stringProp('Relative path (default .)') }, ['pattern']),
     async execute(input: { pattern: string; path?: string }) {
       try {
-        const target = resolveSafePath(workspace, input.path ?? '.')
+        const target = (await resolveSafePath(workspace, input.path ?? '.'))
         const matches: string[] = []
         await walk(target, (file) => {
           if (file.includes(input.pattern)) matches.push(file)

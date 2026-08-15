@@ -16,14 +16,14 @@ afterEach(async () => {
 })
 
 describe('path confinement', () => {
-  it('resolves a path inside the workspace', () => {
-    const resolved = resolveSafePath('/tmp/w', 'src/app.ts')
+  it('resolves a path inside the workspace', async () => {
+    const resolved = await resolveSafePath('/tmp/w', 'src/app.ts')
     expect(resolved).toBe('/tmp/w/src/app.ts')
   })
 
-  it('rejects traversal outside the workspace', () => {
-    expect(() => resolveSafePath('/tmp/w', '../evil.txt')).toThrow()
-    expect(() => resolveSafePath('/tmp/w', '/etc/passwd')).toThrow()
+  it('rejects traversal outside the workspace', async () => {
+    await expect(resolveSafePath('/tmp/w', '../evil.txt')).rejects.toThrow()
+    await expect(resolveSafePath('/tmp/w', '/etc/passwd')).rejects.toThrow()
   })
 })
 

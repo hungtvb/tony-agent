@@ -5,6 +5,7 @@ import { AgentMessage } from './messages.js'
 import { createBranchSummary } from './compaction/branch-summarization.js'
 import { createCompaction, type CompactionOptions } from './compaction/compaction.js'
 import { createEntry, type Entry } from './session/types.js'
+import type { ToolCall } from '../types.js'
 
 export interface HarnessOptions {
   repo: { create(id: string): Promise<Session>; open(id: string): Promise<Session>; branch(id: string, newId: string, fromSeq: number): Promise<Session> }
@@ -80,7 +81,10 @@ export class AgentHarness {
   async resume(input: string): Promise<RunOutcome> {
     const session = await this.repo.open(this.sessionId)
     const transcript = this.transcriptFromEntries(session.getEntries())
-    const agent = await this.ensureAgent(transcript)
+    const agent = await this.ensureAgent()
+    // ALWAYS reset the transcript from disk — a reused agent instance may still
+    // hold a stale in-memory transcript from a previous (possibly crashed) run.
+    agent.setTranscript(transcript)
     const outcome = await agent.run(input)
     await this.persistTranscript(session, agent.getTranscript())
     return outcome
@@ -121,11 +125,62 @@ export class AgentHarness {
   private transcriptFromEntries(entries: Entry[]): AgentMessage[] {
     const messages: AgentMessage[] = []
     for (const entry of entries) {
-      if (entry.kind === 'message') {
-        messages.push(AgentMessage.from('user', { content: entry.message.content }))
+      if (entry.kind === 'message' && entry.message) {
+        const role = entry.message.role
+        const content = entry.message.content
+        if (role === 'user') {
+          messages.push(AgentMessage.from('user', { content }))
+        } else if (role === 'assistant') {
+          // assistant entries persist either a plain text string or a content
+          // array with embedded tool calls; rebuild with text + toolCalls
+          const text = typeof content === 'string' ? content : this.extractText(content)
+          const toolCalls = typeof content === 'string' ? [] : this.extractToolCalls(content)
+          messages.push(AgentMessage.from('assistant', { content: text, toolCalls, stopReason: entry.message.stopReason }))
+        } else if (role === 'toolResult') {
+          // persisted toolResult content is a JSON string {toolCallId,name,content,isError}
+          let parsed: { toolCallId: string; name: string; content: string; isError?: boolean }
+          try {
+            parsed = typeof content === 'string' ? JSON.parse(content) : { toolCallId: 'unknown', name: 'unknown', content: '' }
+          } catch {
+            parsed = { toolCallId: 'unknown', name: 'unknown', content: String(content) }
+          }
+          messages.push(AgentMessage.from('toolResult', { toolCallId: parsed.toolCallId, name: parsed.name, content: parsed.content, isError: parsed.isError }))
+        }
+        // system / summary / branchSummary entries are context, not conversation
       }
     }
     return messages
+  }
+
+  private extractText(content: unknown): string {
+    if (typeof content === 'string') return content
+    if (Array.isArray(content)) {
+      return content
+        .filter((part) => part && typeof part === 'object' && (part as { type?: string }).type === 'text')
+        .map((part) => (part as { text?: string }).text ?? '')
+        .join('')
+    }
+    return ''
+  }
+
+  private extractToolCalls(content: unknown): ToolCall[] {
+    if (!Array.isArray(content)) return []
+    return content
+      .filter((part) => part && typeof part === 'object' && (part as { type?: string }).type === 'toolCall')
+      .map((part) => {
+        const raw = (part as { arguments?: unknown }).arguments
+        let args: Record<string, unknown>
+        if (typeof raw === 'string') {
+          try { args = JSON.parse(raw) as Record<string, unknown> } catch { args = {} }
+        } else {
+          args = (raw as Record<string, unknown>) ?? {}
+        }
+        return {
+          id: (part as { id?: string }).id ?? '',
+          name: (part as { name?: string }).name ?? '',
+          arguments: args,
+        }
+      })
   }
 
   private summarizeEntries(entries: Entry[], fromSeq: number): string {

@@ -106,6 +106,7 @@ export function createAnthropicMessagesApi(options: ProviderOptions): Api {
       const url = `${options.baseUrl.replace(/\/+$/, '')}/v1/messages`
       const messages = request.messages.flatMap((message): unknown[] => {
         if (message.role === 'user') return [{ role: 'user', content: typeof message.content === 'string' ? message.content : message.content.map((part) => ({ type: 'text', text: part.type === 'text' ? part.text : '' })) }]
+        if (message.role === 'system') return [{ role: 'user', content: typeof message.content === 'string' ? message.content : message.content.map((part) => ({ type: 'text', text: part.type === 'text' ? part.text : '' })) }]
         if (message.role === 'assistant') return [{ role: 'assistant', content: typeof message.content === 'string' ? message.content : message.content.map((part) => part.type === 'text' ? { type: 'text', text: part.text } : { type: 'tool_use', id: part.id, name: part.name, input: typeof part.arguments === 'string' ? JSON.parse(part.arguments) : part.arguments }) }]
         const tool = message.content as unknown as { toolCallId: string; name: string; content: string }
         return [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: tool.toolCallId ?? '', content: typeof message.content === 'string' ? message.content : '' }] }]
