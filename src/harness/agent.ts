@@ -1,6 +1,7 @@
 import type { SimpleMessage, SimpleResult, SimpleStreamOptions, ToolDefinition, Usage } from '../llm/model.js'
 import type { JsonSchema, TonyTool, ToolCall } from '../types.js'
 import { AgentMessage } from './messages.js'
+import type { ApprovalProvider } from '../approval/provider.js'
 
 export type AgentEventType =
   | 'agent_start'
@@ -48,6 +49,8 @@ export interface AgentOptions {
   sessionId?: string
   systemPrompt?: string
   stream?: (delta: string) => void
+  /** Approval seam — when absent, confirm-decisions are not asked and the tool is denied. */
+  approval?: ApprovalProvider
 }
 
 export interface RunOutcome {
@@ -80,6 +83,7 @@ export class Agent {
   private readonly sessionId: string
   private readonly systemPrompt?: string
   private readonly stream?: (delta: string) => void
+  private readonly approval?: ApprovalProvider
 
   private readonly handlers: EventHandler[] = []
   private transcript: AgentMessage[] = []
@@ -98,6 +102,7 @@ export class Agent {
     this.sessionId = options.sessionId ?? 'session'
     this.systemPrompt = options.systemPrompt
     this.stream = options.stream
+    this.approval = options.approval
   }
 
   on(handler: EventHandler): void
@@ -278,6 +283,24 @@ export class Agent {
       this.transcript.push(AgentMessage.from('toolResult', { toolCallId: call.id, name: call.name, content: result.content, isError: true }))
       this.emit({ type: 'tool_result', sessionId: this.sessionId, runId, turnId, toolResult: { toolCallId: call.id, content: result.content, isError: true } })
       return
+    }
+    // approval seam: confirm-decisions need a mounted provider; without one the
+    // call degrades to deny (fail-closed), mirroring the dsh approval degrade.
+    if (tool.risk === 'risky') {
+      const resolution = this.approval
+        ? await this.approval.resolve({
+            requestId: `permission-${crypto.randomUUID()}`,
+            tool,
+            arguments: typeof call.arguments === 'string' ? (JSON.parse(call.arguments) as Record<string, unknown>) : call.arguments,
+            sessionId: this.sessionId,
+          })
+        : 'deny'
+      if (resolution !== 'allow-once' && resolution !== 'allow-session') {
+        const result = { content: `Permission denied for tool ${call.name}.`, isError: true }
+        this.transcript.push(AgentMessage.from('toolResult', { toolCallId: call.id, name: call.name, content: result.content, isError: true }))
+        this.emit({ type: 'tool_result', sessionId: this.sessionId, runId, turnId, toolResult: { toolCallId: call.id, content: result.content, isError: true } })
+        return
+      }
     }
     if (this.hooks.beforeToolCall) await this.hooks.beforeToolCall(call, { sessionId: this.sessionId })
     let result: { content: string; isError?: boolean }
