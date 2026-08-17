@@ -2,6 +2,7 @@ import type { SimpleMessage, SimpleResult, SimpleStreamOptions, ToolDefinition, 
 import type { JsonSchema, TonyTool, ToolCall } from '../types.js'
 import { AgentMessage } from './messages.js'
 import type { ApprovalProvider } from '../approval/provider.js'
+import type { ToolScope } from '../tools/scope.js'
 
 export type AgentEventType =
   | 'agent_start'
@@ -51,6 +52,8 @@ export interface AgentOptions {
   stream?: (delta: string) => void
   /** Approval seam — when absent, confirm-decisions are not asked and the tool is denied. */
   approval?: ApprovalProvider
+  /** Per-agent tool visibility mask — shadows the global tool map without mutating it. */
+  scope?: ToolScope
 }
 
 export interface RunOutcome {
@@ -84,6 +87,7 @@ export class Agent {
   private readonly systemPrompt?: string
   private readonly stream?: (delta: string) => void
   private readonly approval?: ApprovalProvider
+  private readonly scope?: ToolScope
 
   private readonly handlers: EventHandler[] = []
   private transcript: AgentMessage[] = []
@@ -103,6 +107,7 @@ export class Agent {
     this.systemPrompt = options.systemPrompt
     this.stream = options.stream
     this.approval = options.approval
+    this.scope = options.scope
   }
 
   on(handler: EventHandler): void
@@ -181,9 +186,10 @@ export class Agent {
         finalMessages = [{ role: 'system', content: this.systemPrompt }, ...finalMessages]
       }
 
-      const toolDefs: ToolDefinition[] = Array.from(this.tools.values()).map((tool) => ({
+      const visibleTools = this.scope ? this.scope.filter(Array.from(this.tools)) : Array.from(this.tools)
+      const toolDefs: ToolDefinition[] = visibleTools.map(([name, tool]) => ({
         type: 'function',
-        function: { name: tool.name, description: tool.description, parameters: tool.parameters },
+        function: { name, description: tool.description, parameters: tool.parameters },
       }))
 
       const streamOptions: SimpleStreamOptions = {
@@ -276,7 +282,7 @@ export class Agent {
   }
 
   private async executeSingle(call: ToolCall, runId: string, turnId: number): Promise<void> {
-    const tool = this.tools.get(call.name)
+    const tool = this.scope ? this.scope.resolve(call.name, (name) => this.tools.get(name)) : this.tools.get(call.name)
     this.emit({ type: 'tool_started', sessionId: this.sessionId, runId, turnId, toolCall: call })
     if (!tool) {
       const result = { content: `Unknown tool: ${call.name}`, isError: true }
