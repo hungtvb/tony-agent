@@ -33,6 +33,7 @@ export type { CodeRunResult, CodeRunRequest, CodeRuntime } from './code-runtime/
 export { createCodingTools } from './tools/coding/index.js'
 export { resolveSafePath } from './tools/coding/path-utils.js'
 export { ToolsManager, type ToolsManagerOptions } from './tools/manager.js'
+export { ToolScope } from './tools/scope.js'
 export { MemoryPageAdapter } from './host/memory.js'
 export { getSiteFromUrl, type PageAdapter, type BrowserHostAdapter } from './host/adapter.js'
 export { CdpBrowserAdapter, CdpConnection, type CdpBrowserAdapterOptions, type CdpTargetInfo, type WebSocketFactory } from './host/cdp.js'
