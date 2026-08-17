@@ -1,7 +1,7 @@
 {
   "name": "tony-agent",
   "version": "0.2.0",
-  "description": "Tony Agent — self-built, browser-native AI agent runtime (agent loop, tools, permissions, sessions).",
+  "description": "Tony Agent — self-built AI agent harness (agent loop, tools, permission policy, sessions, remote protocol).",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

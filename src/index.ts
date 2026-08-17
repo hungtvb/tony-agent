@@ -11,6 +11,7 @@ export { encodeFrame, decodeFrame, encodeProtocolMessage, type ProtocolMessage }
 export { TonyServer, type Channel, type ServerOptions } from './server/index.js'
 export { TonyClient, type ClientOptions, type ClientRunResult } from './client/index.js'
 export { Agent, type AgentHooks, type PendingMessageQueueOptions, type RunOutcome } from './harness/agent.js'
+export { ApprovalProvider, type ApprovalResolver, type ApprovalProviderOptions } from './approval/provider.js'
 export { AgentMessage, type AgentMessageData, type AgentMessageKind } from './harness/messages.js'
 export { AgentHarness, type HarnessOptions, type HarnessSnapshot } from './harness/agent-harness.js'
 export { createEntry, isEntry, type Entry, type EntryKind } from './harness/session/types.js'
