@@ -15,9 +15,14 @@ export interface PatchRow {
 export class PatchLayer {
   constructor(private readonly rows: PatchRow[]) {}
 
-  /** Apply this layer over a base row map; returns the merged map. */
-  apply(base: Map<string, PatchRow>): Map<string, PatchRow> {
-    const merged = new Map(base)
+  /** Apply this layer over a base row list/map; returns the merged row map. */
+  apply(base: PatchRow[] | Map<string, PatchRow>): Map<string, PatchRow> {
+    const merged = new Map<string, PatchRow>()
+    if (base instanceof Map) {
+      for (const [id, row] of Array.from(base.entries())) merged.set(id, row)
+    } else {
+      for (const row of base) merged.set(row.id, row)
+    }
     for (const row of this.rows) {
       if (row.disabled) {
         merged.delete(row.id)
