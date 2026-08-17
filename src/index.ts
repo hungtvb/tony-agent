@@ -14,6 +14,7 @@ export { Agent, type AgentHooks, type PendingMessageQueueOptions, type RunOutcom
 export { ApprovalProvider, type ApprovalResolver, type ApprovalProviderOptions } from './approval/provider.js'
 export { SubagentRegistry, createInProcessSubagentProvider, type SubagentProvider, type SubagentRequest, type SubagentResult } from './subagent/registry.js'
 export { WorkflowEngine, WorkflowError, createSubagentWorkflow, type WorkflowContext, type WorkflowScript, type WorkflowRun, type WorkflowResult } from './workflow/engine.js'
+export { ToolCallWaterfall, runWithWaterfall, type WaterfallDecision, type WaterfallMiddleware, type WaterfallOptions, type WaterfallOutcome, type ToolCallContext } from './events/waterfall.js'
 export { AgentMessage, type AgentMessageData, type AgentMessageKind } from './harness/messages.js'
 export { AgentHarness, type HarnessOptions, type HarnessSnapshot } from './harness/agent-harness.js'
 export { createEntry, isEntry, type Entry, type EntryKind } from './harness/session/types.js'
