@@ -1,0 +1,15 @@
+# web profile — agent with a web dashboard attached
+# Requires a browser host (e.g. the tony-browser desktop shell).
+rows:
+  - id: llm
+    plugin: llm
+    config:
+      stream: true
+  - id: session
+    plugin: session
+    config:
+      lane: default
+  - id: web
+    plugin: web-ui
+    config:
+      port: 4173
