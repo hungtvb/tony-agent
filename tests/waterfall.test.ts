@@ -98,3 +98,43 @@ describe('runWithWaterfall', () => {
     expect(result.content).toContain('Permission denied')
   })
 })
+describe('WaterfallStepper persistence', () => {
+  const call: ToolCall = { id: 'c2', name: 'read', arguments: {} }
+
+  it('records every step into a memory sink', async () => {
+    const waterfall = new ToolCallWaterfall()
+    waterfall.use(async (_ctx, next) => { await next() })
+    waterfall.use(async (_ctx, next) => { await next() })
+    const sink = new (await import('../src/events/waterfall.js')).MemoryTrailSink()
+    const stepper = new (await import('../src/events/waterfall.js')).WaterfallStepper(waterfall, sink)
+    const { outcome, steps } = await stepper.run({ sessionId: 's', call })
+    expect(outcome.decision).toBe('allow')
+    expect(steps).toHaveLength(2)
+    expect(sink.records).toHaveLength(2)
+    expect(steps[0]?.toolName).toBe('read')
+    expect(steps[0]?.sessionId).toBe('s')
+  })
+
+  it('persists steps into a session store sink', async () => {
+    const waterfall = new ToolCallWaterfall()
+    waterfall.use(async (_ctx, next) => { await next() })
+    const appended: unknown[] = []
+    const { SessionTrailSink, WaterfallStepper } = await import('../src/events/waterfall.js')
+    const stepper = new WaterfallStepper(waterfall, new SessionTrailSink(async (entry) => { appended.push(entry) }))
+    await stepper.run({ sessionId: 's', call })
+    expect(appended).toHaveLength(1)
+    const entry = appended[0] as { customType?: string; payload?: unknown }
+    expect(entry.customType).toBe('waterfall_step')
+    expect((entry.payload as { toolName?: string })?.toolName).toBe('read')
+  })
+
+  it('records deny decisions', async () => {
+    const waterfall = new ToolCallWaterfall()
+    waterfall.use(async () => 'deny' as WaterfallDecision)
+    const sink = new (await import('../src/events/waterfall.js')).MemoryTrailSink()
+    const stepper = new (await import('../src/events/waterfall.js')).WaterfallStepper(waterfall, sink)
+    const { outcome } = await stepper.run({ sessionId: 's', call })
+    expect(outcome.decision).toBe('deny')
+    expect(sink.records[0]?.decision).toBe('deny')
+  })
+})
