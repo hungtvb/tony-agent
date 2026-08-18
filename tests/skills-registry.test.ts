@@ -77,6 +77,65 @@ describe('SkillRegistry', () => {
     expect(await registry.getForModel('model-only')).toBeDefined()
   })
 
+  it('list filters by invocation surface (model vs user)', async () => {
+    const registry = new SkillRegistry()
+    const policyProvider: SkillProvider = {
+      name: 'policy',
+      async list() {
+        return [
+          { name: 'both', description: 'both', invocation: { modelInvocable: true, userInvocable: true } },
+          { name: 'user-only', description: 'u', invocation: { modelInvocable: false, userInvocable: true } },
+          { name: 'model-only', description: 'm', invocation: { modelInvocable: true, userInvocable: false } },
+        ]
+      },
+      async get(name) {
+        const map: Record<string, { invocation: { modelInvocable: boolean; userInvocable: boolean }; content: string }> = {
+          both: { invocation: { modelInvocable: true, userInvocable: true }, content: 'b' },
+          'user-only': { invocation: { modelInvocable: false, userInvocable: true }, content: 'u' },
+          'model-only': { invocation: { modelInvocable: true, userInvocable: false }, content: 'm' },
+        }
+        const skill = map[name]
+        return skill ? { name, description: name, content: skill.content, invocation: skill.invocation, resourceHints: [] } : undefined
+      },
+    }
+    registry.registerProvider(() => policyProvider)
+    registry.register({
+      name: 'user-rt',
+      description: 'runtime user-only',
+      content: 'x',
+      invocation: { modelInvocable: false, userInvocable: true },
+    })
+
+    const modelNames = (await registry.list({ surface: 'model' })).map((s) => s.name)
+    expect(modelNames).toEqual(['both', 'model-only'])
+    const userNames = (await registry.list({ surface: 'user' })).map((s) => s.name)
+    expect(userNames).toEqual(['both', 'user-only', 'user-rt'])
+    // no surface = everything
+    expect(await registry.list()).toHaveLength(4)
+  })
+
+  it('getForUser gates user-invocable skills and mirrors getForModel', async () => {
+    const registry = new SkillRegistry()
+    registry.register({
+      name: 'model-only',
+      description: 'hidden from user',
+      content: 'm',
+      invocation: { modelInvocable: true, userInvocable: false },
+    })
+    registry.register({
+      name: 'user-only',
+      description: 'hidden from model',
+      content: 'u',
+      invocation: { modelInvocable: false, userInvocable: true },
+    })
+
+    expect(await registry.getForModel('model-only')).toBeDefined()
+    expect(await registry.getForModel('user-only')).toBeUndefined()
+    expect(await registry.getForUser('user-only')).toBeDefined()
+    expect(await registry.getForUser('model-only')).toBeUndefined()
+    expect(await registry.getForUser('missing')).toBeUndefined()
+  })
+
   it('provider list failures do not break other providers', async () => {
     const registry = new SkillRegistry()
     registry.registerProvider(() => ({
