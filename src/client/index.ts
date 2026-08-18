@@ -15,6 +15,7 @@ export interface ClientRunResult {
 /**
  * Remote session client: relays run/steer/abort commands to the server and
  * forwards events. Waits for the matching run_end/session response.
+ * `authenticate(token)` performs the auth handshake when the server requires it.
  */
 export class TonyClient {
   private readonly channel: ClientOptions['channel']
@@ -29,6 +30,20 @@ export class TonyClient {
 
   onMessage(handler: (message: ProtocolMessage) => void): void {
     this.handlers.push(handler)
+  }
+
+  /** Send the auth handshake. Resolves with the server's verdict. */
+  authenticate(token: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const listener = (message: ProtocolMessage) => {
+        if (message.kind === 'event' && message.payload.type === 'auth_result') {
+          this.handlers.splice(this.handlers.indexOf(listener), 1)
+          resolve(Boolean(message.payload.ok))
+        }
+      }
+      this.handlers.push(listener)
+      this.channel.write({ kind: 'command', payload: { type: 'auth', token } })
+    })
   }
 
   private dispatch(message: ProtocolMessage): void {
