@@ -12,8 +12,54 @@ export interface PatchRow {
   disabled?: boolean
 }
 
+/** A schema violation for one patch row. */
+export interface PatchSchemaError {
+  row: string
+  issues: string[]
+}
+
+export interface PatchLayerOptions {
+  /** When true (default), throw on the first invalid row in `apply`. */
+  strict?: boolean
+}
+
+/** Validate one row's shape; returns human-readable issues (empty = valid). */
+export function validatePatchRow(row: PatchRow): string[] {
+  const issues: string[] = []
+  if (typeof row.id !== 'string' || row.id.trim() === '') {
+    issues.push('id must be a non-empty string')
+  }
+  if (typeof row.plugin !== 'string' || row.plugin.trim() === '') {
+    issues.push('plugin must be a non-empty string')
+  }
+  if (row.config !== undefined) {
+    const isPlainObject = typeof row.config === 'object' && row.config !== null && !Array.isArray(row.config)
+    if (!isPlainObject) issues.push('config must be a plain object')
+  }
+  if (row.disabled !== undefined && typeof row.disabled !== 'boolean') {
+    issues.push('disabled must be a boolean')
+  }
+  return issues
+}
+
+/** Validate a list of patch rows; returns one entry per invalid row. */
+export function validatePatchRows(rows: PatchRow[]): PatchSchemaError[] {
+  const errors: PatchSchemaError[] = []
+  for (const row of rows) {
+    const issues = validatePatchRow(row)
+    if (issues.length > 0) errors.push({ row: row.id, issues })
+  }
+  return errors
+}
+
 export class PatchLayer {
-  constructor(private readonly rows: PatchRow[]) {}
+  private readonly rows: PatchRow[]
+  private readonly strict: boolean
+
+  constructor(rows: PatchRow[], options: PatchLayerOptions = {}) {
+    this.strict = options.strict ?? true
+    this.rows = this.strict ? assertValidRows(rows) : rows
+  }
 
   /** Apply this layer over a base row list/map; returns the merged row map. */
   apply(base: PatchRow[] | Map<string, PatchRow>): Map<string, PatchRow> {
@@ -44,4 +90,15 @@ export class PatchLayer {
   dump(rows: Map<string, PatchRow>): PatchRow[] {
     return Array.from(rows.values()).sort((a, b) => a.id.localeCompare(b.id))
   }
+}
+
+function assertValidRows(rows: PatchRow[]): PatchRow[] {
+  const errors = validatePatchRows(rows)
+  if (errors.length > 0) {
+    const detail = errors
+      .map((error) => `  row "${error.row}": ${error.issues.join('; ')}`)
+      .join('\n')
+    throw new Error(`Invalid patch rows:\n${detail}`)
+  }
+  return rows
 }
