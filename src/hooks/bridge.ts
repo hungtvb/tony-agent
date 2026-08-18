@@ -52,7 +52,7 @@ export class HookBridge {
     for (const hook of resolved) {
       const raw = await runHookCommand(hook.rule, hook.payload)
       if (raw.exitCode !== 0) continue
-      const stdout = raw.output.trim()
+      const stdout = (raw.output ?? '').trim()
       if (!stdout) continue
       try {
         const parsed = JSON.parse(stdout) as HookResultMutation
