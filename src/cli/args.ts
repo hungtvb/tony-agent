@@ -1,7 +1,7 @@
 export type CliCommand =
   | 'run' | 'prompt' | 'new' | 'steer' | 'abort' | 'fork' | 'compact' | 'export'
   | 'switch' | 'list' | 'get' | 'clone' | 'set' | 'cycle' | 'server' | 'client' | 'models' | 'doctor'
-  | 'profile' | 'dump-config'
+  | 'profile' | 'dump-config' | 'help'
 
 export interface ParsedCli {
   command: CliCommand
@@ -12,6 +12,11 @@ export interface ParsedCli {
   nonInteractive: boolean
   json: boolean
   dataDir?: string
+  baseUrl?: string
+  apiKey?: string
+  model?: string
+  maxTurns?: number
+  stream: boolean
   profile?: string
   dumpConfig: boolean
 }
@@ -25,6 +30,7 @@ export function parseCliArgs(argv: string[]): ParsedCli {
     offline: false,
     nonInteractive: false,
     json: false,
+    stream: true,
     dumpConfig: false,
   }
   const positional: string[] = []
@@ -33,21 +39,28 @@ export function parseCliArgs(argv: string[]): ParsedCli {
     const value = argv[index + 1]
     if (POSITIONAL_COMMANDS.has(arg as CliCommand) && !arg.startsWith('-')) {
       parsed.command = arg as CliCommand
-    } else if (arg === 'run' || arg === 'server' || arg === 'client' || arg === 'models' || arg === 'abort' || arg === 'compact' || arg === 'export' || arg === 'doctor' || arg === 'list' || arg === 'steer' || arg === 'profile' || arg === 'dump-config') {
+    } else if (arg === 'run' || arg === 'server' || arg === 'client' || arg === 'models' || arg === 'abort' || arg === 'compact' || arg === 'export' || arg === 'doctor' || arg === 'list' || arg === 'steer' || arg === 'profile' || arg === 'dump-config' || arg === 'help') {
       parsed.command = arg as CliCommand
-    } else if (arg === '-s' || arg === '--session') { if (value) { parsed.session = value; index += 1 } }
+    } else if (arg === '-p' || arg === '--prompt') { if (value) { parsed.prompt = value; index += 1 } }
+    else if (arg === '-s' || arg === '--session') { if (value) { parsed.session = value; index += 1 } }
     else if (arg === '--offline') parsed.offline = true
     else if (arg === '--non-interactive' || arg === '-y' || arg === '--yes') parsed.nonInteractive = true
     else if (arg === '--json') parsed.json = true
     else if (arg === '--data-dir' && value) { parsed.dataDir = value; index += 1 }
+    else if (arg === '--base-url' && value) { parsed.baseUrl = value; index += 1 }
+    else if (arg === '--api-key' && value) { parsed.apiKey = value; index += 1 }
+    else if (arg === '--model' && value) { parsed.model = value; index += 1 }
+    else if (arg === '--max-turns' && value) { parsed.maxTurns = Number.parseInt(value, 10); index += 1 }
+    else if (arg === '--no-stream') parsed.stream = false
     else if (arg === '--profile' && value) { parsed.profile = value; index += 1 }
     else if (arg === '--dump-config') parsed.dumpConfig = true
+    else if (arg === '--help' || arg === '-h') parsed.command = 'help'
     else if (!arg.startsWith('-')) positional.push(arg)
   }
   if (parsed.command === 'new' || parsed.command === 'fork' || parsed.command === 'switch' || parsed.command === 'get' || parsed.command === 'clone' || parsed.command === 'set' || parsed.command === 'cycle' || parsed.command === 'profile') {
     parsed.target = positional[0]
   }
-  if (parsed.command === 'prompt' || parsed.command === 'steer' || parsed.command === 'set') {
+  if (parsed.command === 'prompt' || parsed.command === 'steer' || parsed.command === 'set' || parsed.command === 'client') {
     parsed.prompt = positional.join(' ')
   }
   return parsed
