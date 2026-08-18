@@ -9,9 +9,9 @@ interface CredentialFile {
 
 /**
  * Provider API-key store persisted as a JSON file (0600) keyed by provider.
- * The on-disk file stores a redacted marker per provider; real keys live only
- * in memory for the lifetime of the process, so a leaked file never exposes
- * secrets. Listing returns provider names only.
+ * Real keys are written to disk with restrictive permissions (0o600) so a
+ * restart reloads them. The directory itself is created 0o700. The file is
+ * written atomically (temp + rename). Listing returns provider names only.
  */
 export class CredentialStore {
   readonly directory: string
@@ -30,13 +30,13 @@ export class CredentialStore {
 
   async initialize(): Promise<void> {
     if (this.initialized) return
-    await mkdir(this.directory, { recursive: true })
+    await mkdir(this.directory, { recursive: true, mode: 0o700 })
     try {
       const raw = await readFile(this.path(), 'utf8')
       const parsed = JSON.parse(raw) as Partial<CredentialFile>
       if (parsed && typeof parsed.providers === 'object' && parsed.providers !== null) {
         for (const provider of Object.keys(parsed.providers)) {
-          if (SAFE_PROVIDER.test(provider)) this.keys[provider] = ''
+          if (SAFE_PROVIDER.test(provider)) this.keys[provider] = String(parsed.providers[provider])
         }
       }
     } catch {
@@ -72,9 +72,9 @@ export class CredentialStore {
   }
 
   private async persist(): Promise<void> {
-    const redacted = Object.fromEntries(Object.keys(this.keys).map((provider) => [provider, '*****']))
+    const snapshot = Object.fromEntries(Object.entries(this.keys).map(([provider, key]) => [provider, key]))
     const temp = `${this.path()}.tmp`
-    await writeFile(temp, JSON.stringify({ providers: redacted }, null, 2), { mode: 0o600 })
+    await writeFile(temp, JSON.stringify({ providers: snapshot }, null, 2), { mode: 0o600 })
     await rename(temp, this.path())
   }
 }
