@@ -147,20 +147,70 @@ async function resolvePermission(request: PermissionRequest, nonInteractive: boo
 }
 
 async function doctor(options: CliOptions): Promise<void> {
-  output.write('Tony Agent doctor\n')
+  const report: Record<string, unknown> = {
+    node: process.version,
+    platform: process.platform,
+    arch: process.arch,
+    dataDir: options.dataDir,
+  }
+
+  // --- session store health ---
+  try {
+    const store = new SessionStore(options.dataDir)
+    await store.initialize()
+    const sessions = await store.list()
+    report.sessions = { dir: options.dataDir, count: sessions.length }
+  } catch (error) {
+    report.sessions = { error: error instanceof Error ? error.message : String(error) }
+  }
+
+  // --- provider / LLM connectivity ---
   if (options.baseUrl === 'offline') {
-    output.write('  mode: offline (no provider to validate)\n')
+    report.mode = 'offline'
+    report.provider = { ok: true, offline: true }
+  } else {
+    try {
+      const provider = resolveProvider(options)
+      const client = new TonyLLMClient({ baseUrl: provider.baseUrl, apiKey: provider.apiKey, model: provider.model, stream: false, maxRetries: 0, timeoutMs: 15_000 })
+      const start = Date.now()
+      const result = await client.complete({ messages: [{ role: 'user', content: 'Reply with OK' }] })
+      const latency = Date.now() - start
+      report.provider = {
+        ok: true,
+        baseUrl: provider.baseUrl,
+        auth: provider.apiKey ? 'bearer (redacted)' : 'none',
+        model: provider.model,
+        latencyMs: latency,
+        tokens: result.usage?.totalTokens ?? null,
+        empty: result.text.length === 0,
+      }
+    } catch (error) {
+      report.provider = { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  if (options.json) {
+    output.write(`${JSON.stringify(report, null, 2)}\n`)
+    process.exitCode = (report.provider as { ok?: boolean } | undefined)?.ok ? 0 : 1
     return
   }
-  const provider = resolveProvider(options)
-  const client = new TonyLLMClient({ baseUrl: provider.baseUrl, apiKey: provider.apiKey, model: provider.model, stream: false, maxRetries: 0, timeoutMs: 15_000 })
-  output.write(`  baseUrl: ${provider.baseUrl}${provider.apiKey ? '  auth: bearer (redacted)' : '  auth: none'}\n`)
-  output.write(`  model: ${provider.model}\n`)
-  const start = Date.now()
-  const result = await client.complete({ messages: [{ role: 'user', content: 'Reply with OK' }] })
-  const latency = Date.now() - start
-  output.write(`  completion: ok (${latency}ms, ${result.usage?.totalTokens ?? 'unknown'} tokens) ${result.text ? '' : '(empty)'}\n`)
-  output.write('doctor: ok\n')
+
+  output.write('Tony Agent doctor\n')
+  output.write(`  node: ${report.node} (${report.platform}/${report.arch})\n`)
+  output.write(`  dataDir: ${report.dataDir}\n`)
+  const sessions = report.sessions as { count?: number; error?: string } | undefined
+  output.write(`  sessions: ${sessions?.error ? `error (${sessions.error})` : `${Number(sessions?.count ?? 0)} session(s)`}\n`)
+  const provider = report.provider as Record<string, unknown> | undefined
+  if (!provider) {
+    output.write('  provider: (missing)\n')
+  } else if (provider.offline) {
+    output.write('  mode: offline (no provider to validate)\n')
+  } else if (provider.ok) {
+    output.write(`  provider: ok (${provider.latencyMs}ms, ${provider.tokens ?? 'unknown'} tokens) model=${provider.model}\n`)
+  } else {
+    output.write(`  provider: FAIL (${provider.error})\n`)
+  }
+  output.write(`doctor: ${provider?.ok ? 'ok' : 'failed'}\n`)
 }
 
 async function main(): Promise<void> {
