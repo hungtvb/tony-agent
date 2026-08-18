@@ -84,3 +84,40 @@ describe('planCompaction', () => {
     })).toBeUndefined()
   })
 })
+
+describe('SessionStore lanes', () => {
+  it('tags a session with a lane and lists by lane (newest first)', async () => {
+    const store = await createStore()
+    const a = await store.create('Alpha')
+    const b = await store.create('Beta')
+    const c = await store.create('Gamma')
+    await store.setLane(a.id, 'research')
+    await store.setLane(c.id, 'research')
+    await store.setLane(b.id, 'coding')
+
+    expect((await store.listByLane('research')).map((s) => s.id)).toEqual([c.id, a.id])
+    expect((await store.listByLane('coding')).map((s) => s.id)).toEqual([b.id])
+    expect(await store.listByLane('ops')).toEqual([])
+  })
+
+  it('clears a lane when set to empty / undefined', async () => {
+    const store = await createStore()
+    const session = await store.create('S')
+    await store.setLane(session.id, 'ops')
+    expect((await store.get(session.id))?.lane).toBe('ops')
+    await store.setLane(session.id)
+    expect((await store.get(session.id))?.lane).toBeUndefined()
+  })
+
+  it('survives index reload and guards long lane values', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'tony-agent-lane-'))
+    directories.push(directory)
+    const store = new SessionStore(directory)
+    await store.initialize()
+    const session = await store.create('Persist')
+    await store.setLane(session.id, 'x'.repeat(200))
+    const reloaded = new SessionStore(directory)
+    await reloaded.initialize()
+    expect((await reloaded.get(session.id))?.lane).toHaveLength(64)
+  })
+})

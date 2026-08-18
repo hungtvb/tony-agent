@@ -80,6 +80,26 @@ export class SessionStore {
     return clone(info)
   }
 
+  async setLane(sessionId: string, lane?: string): Promise<SessionInfo> {
+    await this.initialize()
+    const info = this.requireInfo(sessionId)
+    const trimmed = lane?.trim()
+    if (trimmed) info.lane = trimmed.slice(0, 64)
+    else delete info.lane
+    info.updatedAt = Date.now()
+    await this.persistIndex()
+    return clone(info)
+  }
+
+  /** List sessions in a lane, newest first. */
+  async listByLane(lane: string): Promise<SessionInfo[]> {
+    await this.initialize()
+    return this.index.sessions
+      .filter((item) => item.lane === lane)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .map(clone)
+  }
+
   async append(sessionId: string, entry: AppendEntry): Promise<SessionEntry> {
     await this.initialize()
     const info = this.requireInfo(sessionId)
@@ -224,6 +244,7 @@ function isSessionInfo(value: unknown): value is SessionInfo {
   const info = value as Partial<SessionInfo>
   return typeof info.id === 'string' && isSafeSessionId(info.id)
     && typeof info.name === 'string' && typeof info.createdAt === 'number' && typeof info.updatedAt === 'number'
+    && (info.lane === undefined || typeof info.lane === 'string')
 }
 
 function isSessionEntry(value: unknown): value is SessionEntry {

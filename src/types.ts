@@ -145,6 +145,8 @@ export interface SessionInfo {
   name: string
   createdAt: number
   updatedAt: number
+  /** Optional work lane / topic tag (e.g. 'research', 'coding', 'ops'). */
+  lane?: string
 }
 
 export type SessionEntryRole = 'system' | 'user' | 'assistant' | 'tool' | 'summary'
