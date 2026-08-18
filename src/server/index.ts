@@ -2,6 +2,17 @@ import type { ProtocolMessage } from '../protocol/framing.js'
 import type { SimpleResult, SimpleStreamOptions } from '../llm/model.js'
 import type { Session } from '../harness/session/jsonl/repo.js'
 import { Agent } from '../harness/agent.js'
+import { timingSafeEqual as nodeTimingSafeEqual } from 'node:crypto'
+
+/** Constant-time string comparison (lengths are padded to avoid leaking size). */
+function timingSafeEqual(a: string, b: string): boolean {
+  const max = Math.max(a.length, b.length)
+  const bufA = Buffer.alloc(max)
+  const bufB = Buffer.alloc(max)
+  bufA.write(a)
+  bufB.write(b)
+  return nodeTimingSafeEqual(bufA, bufB)
+}
 
 export interface Channel {
   write(message: ProtocolMessage): void
@@ -12,16 +23,21 @@ export interface ServerOptions {
   repo: { open(id: string): Promise<Session>; create(id: string): Promise<Session> }
   complete: (request: { messages: unknown[] }, options: SimpleStreamOptions) => Promise<SimpleResult>
   sessionId: string
+  /** Optional shared secret. When set, the first frame must be an `auth` command carrying it. */
+  authToken?: string
 }
 
 /**
  * Remote session server: accepts framed messages over a Channel, runs them
  * against the harness, and emits events back on the same channel.
+ * When `authToken` is configured the server rejects all commands until an
+ * `auth` frame carrying the token arrives (token compare is timing-safe).
  */
 export class TonyServer {
   private readonly options: ServerOptions
   private channel: Channel | null = null
   private agent: Agent | null = null
+  private authenticated = false
 
   constructor(options: ServerOptions) {
     this.options = options
@@ -35,6 +51,21 @@ export class TonyServer {
   handle(message: ProtocolMessage): void {
     if (message.kind !== 'command') return
     const { type } = message.payload
+
+    // Auth handshake: when a token is configured, require `auth` first.
+    if (this.options.authToken) {
+      if (type === 'auth') {
+        const token = String(message.payload.token ?? '')
+        this.authenticated = timingSafeEqual(token, this.options.authToken)
+        this.emit({ kind: 'event', payload: { type: 'auth_result', ok: this.authenticated } })
+        return
+      }
+      if (!this.authenticated) {
+        this.emit({ kind: 'error', payload: { type: 'unauthorized', command: type } })
+        return
+      }
+    }
+
     switch (type) {
       case 'run': {
         void this.handleRun(String(message.payload.input ?? ''))

@@ -103,3 +103,58 @@ describe('frame encoding integration', () => {
     expect(frame.length).toBe(4 + length)
   })
 })
+describe('TonyServer auth', () => {
+  const mkServer = (authToken?: string) => {
+    const repo = { open: async (id: string) => ({ id, getEntries: () => [], getNextSeq: () => 1, append: async () => {} }), create: async (id: string) => ({ id, getEntries: () => [], getNextSeq: () => 1, append: async () => {} }) }
+    return new TonyServer({ repo, complete: async () => ({ text: 'done', toolCalls: [], usage: undefined, stopReason: 'stop' }), sessionId: 's', authToken })
+  }
+
+  it('rejects commands without token when auth is configured', async () => {
+    const server = mkServer('secret-123')
+    const [serverChannel, clientChannel] = pair()
+    server.attach(serverChannel)
+    const received: ProtocolMessage[] = []
+    clientChannel.onMessage((m) => received.push(m))
+    clientChannel.write({ kind: 'command', payload: { type: 'run', input: 'x' } })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(received.some((m) => m.kind === 'error' && m.payload.type === 'unauthorized')).toBe(true)
+    // no run_end emitted
+    expect(received.some((m) => m.payload.type === 'run_end')).toBe(false)
+  })
+
+  it('accepts the correct token and runs', async () => {
+    const server = mkServer('secret-123')
+    const [serverChannel, clientChannel] = pair()
+    server.attach(serverChannel)
+    const received: ProtocolMessage[] = []
+    clientChannel.onMessage((m) => received.push(m))
+    clientChannel.write({ kind: 'command', payload: { type: 'auth', token: 'secret-123' } })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(received.some((m) => m.payload.type === 'auth_result' && m.payload.ok === true)).toBe(true)
+    clientChannel.write({ kind: 'command', payload: { type: 'run', input: 'hi' } })
+    await new Promise((r) => setTimeout(r, 30))
+    expect(received.some((m) => m.payload.type === 'run_end')).toBe(true)
+  })
+
+  it('rejects a wrong token', async () => {
+    const server = mkServer('secret-123')
+    const [serverChannel, clientChannel] = pair()
+    server.attach(serverChannel)
+    const received: ProtocolMessage[] = []
+    clientChannel.onMessage((m) => received.push(m))
+    clientChannel.write({ kind: 'command', payload: { type: 'auth', token: 'wrong' } })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(received.some((m) => m.payload.type === 'auth_result' && m.payload.ok === false)).toBe(true)
+    clientChannel.write({ kind: 'command', payload: { type: 'run', input: 'x' } })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(received.some((m) => m.kind === 'error' && m.payload.type === 'unauthorized')).toBe(true)
+  })
+
+  it('client.authenticate() round-trips the handshake', async () => {
+    const server = mkServer('tok-abc')
+    const [serverChannel, clientChannel] = pair()
+    server.attach(serverChannel)
+    const client = new TonyClient(clientChannel)
+    expect(await client.authenticate('tok-abc')).toBe(true)
+  })
+})
