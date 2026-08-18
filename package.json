@@ -23,6 +23,7 @@
     "demo": "tsx src/cli/demo.ts",
     "cli": "tsx src/cli/main.ts",
     "smoke": "tsx scripts/smoke.ts",
+    "bench": "tsx scripts/bench.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
