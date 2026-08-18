@@ -28,6 +28,14 @@ export interface SkillLookupOptions {
   signal?: AbortSignal
 }
 
+/** Which invocation surface a skill list targets. */
+export type SkillSurface = 'model' | 'user'
+
+export interface SkillListOptions extends SkillLookupOptions {
+  /** Filter summaries by invocation surface (default: no filter — all). */
+  surface?: SkillSurface
+}
+
 export interface SkillProvider {
   readonly name: string
   /** List candidate skills for the current workspace. */
@@ -91,14 +99,19 @@ export class SkillRegistry {
     return () => this.runtime.delete(skill.name)
   }
 
-  /** List all visible skill summaries, merged across providers, sorted by name. */
-  async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]> {
+  /** List all visible skill summaries, merged across providers, sorted by name.
+   *  Pass `surface` to filter by invocation policy (model vs user facing). */
+  async list(options: SkillListOptions = {}): Promise<SkillSummary[]> {
     const byName = new Map<string, SkillSummary>()
+    const passesSurface = (summary: SkillSummary): boolean => {
+      if (!options.surface) return true
+      return options.surface === 'model' ? summary.invocation.modelInvocable : summary.invocation.userInvocable
+    }
     for (const { provider } of Array.from(this.providers.values())) {
       try {
         const summaries = await provider.list(options)
         for (const summary of summaries) {
-          if (!byName.has(summary.name)) byName.set(summary.name, summary)
+          if (!byName.has(summary.name) && passesSurface(summary)) byName.set(summary.name, summary)
         }
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') throw error
@@ -106,7 +119,7 @@ export class SkillRegistry {
       }
     }
     for (const skill of Array.from(this.runtime.values())) {
-      if (!byName.has(skill.name)) byName.set(skill.name, skill)
+      if (!byName.has(skill.name) && passesSurface(skill)) byName.set(skill.name, skill)
     }
     return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name))
   }
@@ -122,10 +135,17 @@ export class SkillRegistry {
     return undefined
   }
 
-  /** Model-facing gate. */
+  /** Model-facing gate — returns undefined when the skill is not model-invocable. */
   async getForModel(name: string, options: SkillLookupOptions = {}): Promise<Skill | undefined> {
     const skill = await this.get(name, options)
     if (!skill?.invocation.modelInvocable) return undefined
+    return skill
+  }
+
+  /** User-facing gate — returns undefined when the skill is not user-invocable. */
+  async getForUser(name: string, options: SkillLookupOptions = {}): Promise<Skill | undefined> {
+    const skill = await this.get(name, options)
+    if (!skill?.invocation.userInvocable) return undefined
     return skill
   }
 }
