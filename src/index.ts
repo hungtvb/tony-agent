@@ -1,5 +1,6 @@
 export { TonyAgent, defaultAgentLimits, type TonyAgentOptions, type AgentCompletion } from './agent.js'
-export { TonyRuntime, entriesToMessages, type TonyRuntimeOptions, type TonySession } from './runtime.js'
+export { TonyRuntime, type TonyRuntimeOptions, type TonySession } from './runtime.js'
+export { deriveMessages as entriesToMessages, deriveMessages, assertModelVisibleIsLogged } from './session/log.js'
 export { TonyLLMClient, TonyLLMError, extractJsonToolCalls, messagesToOpenAI, parseProviderJson, parseProviderSse } from './llm/client.js'
 export { estimateMessageTokens, estimateTokens, estimateToolTokens } from './llm/tokens.js'
 export { Models, usageFromParts, type Api, type InputContentType, type MessageText, type MessageToolCall, type Model, type ModelCost, type RegisteredModel, type Role, type SimpleContent, type SimpleMessage, type SimpleResult, type SimpleStreamOptions, type StopReason, type ToolDefinition, type Usage } from './llm/model.js'
