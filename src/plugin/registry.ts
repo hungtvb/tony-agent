@@ -35,8 +35,16 @@ export class PluginRegistry {
   mount(plugin: Plugin, ctx: PluginContext): void {
     if (!plugin?.name) throw new Error('Plugin must have a name')
     if (this.mounted.has(plugin.name)) throw new Error(`Plugin already mounted: ${plugin.name}`)
-    const effect = plugin.setup?.(ctx)
-    this.mounted.set(plugin.name, { plugin, effect: effect ?? undefined })
+    if (plugin.setup) {
+      const setupResult: PluginEffect | void = plugin.setup(ctx)
+      if (setupResult && typeof setupResult === 'object' && 'dispose' in setupResult) {
+        this.mounted.set(plugin.name, { plugin, effect: setupResult })
+      } else {
+        this.mounted.set(plugin.name, { plugin })
+      }
+    } else {
+      this.mounted.set(plugin.name, { plugin })
+    }
     this.order.push(plugin.name)
   }
 
