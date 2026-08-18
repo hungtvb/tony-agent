@@ -41,7 +41,7 @@ export function parseCliArgs(argv: string[]): ParsedCli {
   if (parsed.command === 'new' || parsed.command === 'fork' || parsed.command === 'switch' || parsed.command === 'get' || parsed.command === 'clone' || parsed.command === 'set' || parsed.command === 'cycle') {
     parsed.target = positional[0]
   }
-  if (parsed.command === 'prompt' || parsed.command === 'steer') {
+  if (parsed.command === 'prompt' || parsed.command === 'steer' || parsed.command === 'set') {
     parsed.prompt = positional.join(' ')
   }
   return parsed

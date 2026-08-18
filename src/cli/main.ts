@@ -197,12 +197,65 @@ async function main(): Promise<void> {
       const store = new SessionStore(options.dataDir)
       await store.initialize()
       const sessions = await store.list()
-      if (options.json) { output.write(`${JSON.stringify(sessions.map((session) => ({ id: session.id, name: session.name })))}\n`); return }
-      for (const session of sessions) output.write(`${session.id}  ${session.name}\n`)
+      if (options.json) { output.write(`${JSON.stringify(sessions.map((session) => ({ id: session.id, name: session.name, lane: session.lane ?? null })))}\n`); return }
+      for (const session of sessions) output.write(`${session.id}  ${session.name}${session.lane ? `  [${session.lane}]` : ''}\n`)
       return
     }
-    case 'abort': {
-      output.write('abort: sent\n')
+    case 'switch': {
+      const store = new SessionStore(options.dataDir)
+      await store.initialize()
+      const target = parsed.target ?? options.session
+      const known = await store.list()
+      if (!target) {
+        output.write('switch: missing session id\n')
+        process.exitCode = 1
+        return
+      }
+      const exists = known.some((session) => session.id === target)
+      output.write(`${options.json ? JSON.stringify({ session: target, ok: exists }) : `switch: ${exists ? `ok ${target}` : `unknown ${target}`}`}\n`)
+      return
+    }
+    case 'get': {
+      const store = new SessionStore(options.dataDir)
+      await store.initialize()
+      const target = parsed.target ?? options.session
+      const info = target ? await store.get(target) : undefined
+      if (!info) { output.write(`${options.json ? JSON.stringify({ ok: false }) : 'get: unknown session'}\n`); return }
+      const { lane } = info
+      output.write(`${options.json ? JSON.stringify({ id: info.id, name: info.name, lane: lane ?? null, updatedAt: info.updatedAt }) : `get: ${info.id} (${info.name})${lane ? ` lane=${lane}` : ''}`}\n`)
+      return
+    }
+    case 'clone':
+      output.write(`${options.json ? JSON.stringify({ ok: false, reason: 'not-implemented' }) : 'clone: not implemented'}\n`)
+      return
+    case 'set': {
+      // `set <session> <lane>` — tag a session with a work lane.
+      const store = new SessionStore(options.dataDir)
+      await store.initialize()
+      const parts = parsed.prompt ?? ''
+      const [sessionId, lane] = parts.split(/\s+/)
+      if (!sessionId || !lane) {
+        output.write(`${options.json ? JSON.stringify({ ok: false, reason: 'usage: set <session> <lane>' }) : 'usage: set <session> <lane>'}\n`)
+        process.exitCode = 1
+        return
+      }
+      const info = await store.setLane(sessionId, lane)
+      output.write(`${options.json ? JSON.stringify({ id: info.id, lane: info.lane ?? null }) : `set: ${info.id} lane=${info.lane ?? '(none)'}`}\n`)
+      return
+    }
+    case 'cycle': {
+      const store = new SessionStore(options.dataDir)
+      await store.initialize()
+      const lane = parsed.target ?? options.session
+      if (!lane) {
+        // no lane given → list all distinct lanes
+        const all = await store.list()
+        const lanes = Array.from(new Set(all.map((s) => s.lane).filter(Boolean) as string[])).sort()
+        output.write(`${options.json ? JSON.stringify({ lanes }) : `lanes: ${lanes.join(', ') || '(none)'}`}\n`)
+        return
+      }
+      const sessions = await store.listByLane(lane)
+      output.write(`${options.json ? JSON.stringify({ lane, sessions: sessions.map((s) => ({ id: s.id, name: s.name, updatedAt: s.updatedAt })) }) : sessions.length ? `cycle ${lane}: ${sessions.map((s) => s.id).join(' ')}` : `cycle ${lane}: (empty)`}\n`)
       return
     }
     case 'compact': {
