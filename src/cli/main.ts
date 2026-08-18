@@ -19,6 +19,7 @@ import {
 } from '../index.js'
 import { parseCliArgs } from './args.js'
 import { resolveProfile, applyProfile, dumpProfile } from '../config/profiles.js'
+import { bold, cyan, dim, green, red, yellow, magenta, icon, table, SPINNER_FRAMES } from './theme.js'
 
 interface CliOptions {
   command: string
@@ -67,55 +68,55 @@ function resolveProvider(options: Partial<CliOptions>): { baseUrl: string; apiKe
 }
 
 const HELP_TEXT = [
-  'Tony Agent — self-built agent harness CLI',
+  bold(icon.rocket + ' Tony Agent') + dim(' — self-built agent harness CLI'),
   '',
-  'Usage:',
-  '  tony-agent <command> [options]',
+  bold('Usage:'),
+  '  ' + cyan('tony-agent') + ' ' + dim('<command> [options]'),
   '',
-  'Commands:',
-  '  run [-p <text>] [--session <id>] [--offline]   Run one prompt (or interactive REPL)',
-  '  new <name>                                     Create a new session',
-  '  list [--json]                                  List sessions',
-  '  get <id>                                       Show session info',
-  '  switch <id>                                    Validate a session id',
-  '  set <id> <lane>                                Tag a session with a work lane',
-  '  cycle [lane]                                   List lanes or a lane\'s sessions',
-  '  fork <name> [-s <id>]                          Branch a session',
-  '  clone <id> <name>                              Copy a session to a new id',
-  '  compact [-s <id>]                              Compact a session\'s entries',
-  '  export [-s <id>]                               Export a session snapshot',
-  '  steer [-s <id>] <text>                         Send a follow-up steering message',
-  '  abort [-s <id>]                                Abort a running session',
-  '  models [--refresh]                             List discovered provider models',
-  '  server [-s <id>]                               Start the remote protocol server',
-  '  client [-s <id>] <input>                       Send one remote run command',
-  '  doctor [--json]                                Deep environment report',
-  '  profile [<name>] [--dump-config]               Show/apply a config profile',
-  '  dump-config [--profile <name>]                 Print resolved config rows',
-  '  help, --help, -h                               Show this help',
+  bold('Commands:'),
+  '  ' + cyan('run') + ' [-p <text>] [--session <id>] [--offline]   ' + dim('Run one prompt (or interactive REPL)'),
+  '  ' + cyan('new') + ' <name>                                     ' + dim('Create a new session'),
+  '  ' + cyan('list') + ' [--json]                                  ' + dim('List sessions'),
+  '  ' + cyan('get') + ' <id>                                       ' + dim('Show session info'),
+  '  ' + cyan('switch') + ' <id>                                    ' + dim('Validate a session id'),
+  '  ' + cyan('set') + ' <id> <lane>                                ' + dim('Tag a session with a work lane'),
+  '  ' + cyan('cycle') + ' [lane]                                   ' + dim('List lanes or a lane\'s sessions'),
+  '  ' + cyan('fork') + ' <name> [-s <id>]                          ' + dim('Branch a session'),
+  '  ' + cyan('clone') + ' <id> <name>                              ' + dim('Copy a session to a new id'),
+  '  ' + cyan('compact') + ' [-s <id>]                              ' + dim('Compact a session\'s entries'),
+  '  ' + cyan('export') + ' [-s <id>]                               ' + dim('Export a session snapshot'),
+  '  ' + cyan('steer') + ' [-s <id>] <text>                         ' + dim('Send a follow-up steering message'),
+  '  ' + cyan('abort') + ' [-s <id>]                                ' + dim('Abort a running session'),
+  '  ' + cyan('models') + ' [--refresh]                             ' + dim('List discovered provider models'),
+  '  ' + cyan('server') + ' [-s <id>]                               ' + dim('Start the remote protocol server'),
+  '  ' + cyan('client') + ' [-s <id>] <input>                       ' + dim('Send one remote run command'),
+  '  ' + cyan('doctor') + ' [--json]                                ' + dim('Deep environment report'),
+  '  ' + cyan('profile') + ' [<name>] [--dump-config]               ' + dim('Show/apply a config profile'),
+  '  ' + cyan('dump-config') + ' [--profile <name>]                 ' + dim('Print resolved config rows'),
+  '  ' + cyan('help') + ', --help, -h                               ' + dim('Show this help'),
   '',
-  'Options:',
-  '  -p, --prompt <text>        Prompt to run once and exit',
-  '  -s, --session <id>         Target session id',
-  '  --data-dir <path>          Session storage directory (default: ~/.tony-agent)',
-  '  --base-url <url>           OpenAI-compatible provider base URL',
-  '  --api-key <key>            Provider API key (prefer env)',
-  '  --model <name>             Provider model',
-  '  --max-turns <n>            Bound the agent turn count',
-  '  --non-interactive, -y      Deny risky permission prompts instead of asking',
-  '  --offline                  Deterministic in-memory fixture (no provider)',
-  '  --no-stream                Disable SSE streaming',
-  '  --json                     Machine-readable JSON output',
-  '  --profile <name>           Config profile (headless|web)',
-  '  --dump-config              Print resolved profile config',
+  bold('Options:'),
+  '  ' + yellow('-p, --prompt <text>') + '        ' + dim('Prompt to run once and exit'),
+  '  ' + yellow('-s, --session <id>') + '         ' + dim('Target session id'),
+  '  ' + yellow('--data-dir <path>') + '          ' + dim('Session storage directory (default: ~/.tony-agent)'),
+  '  ' + yellow('--base-url <url>') + '           ' + dim('OpenAI-compatible provider base URL'),
+  '  ' + yellow('--api-key <key>') + '            ' + dim('Provider API key (prefer env)'),
+  '  ' + yellow('--model <name>') + '             ' + dim('Provider model'),
+  '  ' + yellow('--max-turns <n>') + '            ' + dim('Bound the agent turn count'),
+  '  ' + yellow('--non-interactive, -y') + '      ' + dim('Deny risky permission prompts instead of asking'),
+  '  ' + yellow('--offline') + '                  ' + dim('Deterministic in-memory fixture (no provider)'),
+  '  ' + yellow('--no-stream') + '                ' + dim('Disable SSE streaming'),
+  '  ' + yellow('--json') + '                     ' + dim('Machine-readable JSON output'),
+  '  ' + yellow('--profile <name>') + '           ' + dim('Config profile (headless|web)'),
+  '  ' + yellow('--dump-config') + '              ' + dim('Print resolved profile config'),
   '',
-  'Environment:',
-  '  TONY_LLM_URL, TONY_LLM_MODEL, TONY_LLM_KEY',
-  '  OPENAI_BASE_URL, OPENAI_API_KEY',
-  '  TONY_AGENT_DATA_DIR, TONY_LLM_STREAM',
+  bold('Environment:'),
+  '  ' + dim('TONY_LLM_URL, TONY_LLM_MODEL, TONY_LLM_KEY'),
+  '  ' + dim('OPENAI_BASE_URL, OPENAI_API_KEY'),
+  '  ' + dim('TONY_AGENT_DATA_DIR, TONY_LLM_STREAM'),
   '',
-  'Interactive REPL:',
-  '  /help  /history  /reset  /models  /tools  /sessions  /profile  /compact  /exit',
+  bold('Interactive REPL:'),
+  '  ' + dim('/help  /history  /reset  /models  /tools  /sessions  /profile  /compact  /exit'),
 ].join('\n')
 
 function printHelp(): void {
@@ -188,22 +189,22 @@ async function doctor(options: CliOptions): Promise<void> {
     return
   }
 
-  const lines: string[] = ['Tony Agent doctor']
-  lines.push('  node: ' + report.node + ' (' + report.platform + '/' + report.arch + ')')
-  lines.push('  dataDir: ' + report.dataDir)
+  const lines: string[] = [bold(icon.gear + ' Tony Agent doctor')]
+  lines.push('  ' + dim('node') + '    ' + cyan(String(report.node)) + dim(' (' + report.platform + '/' + report.arch + ')'))
+  lines.push('  ' + dim('dataDir') + ' ' + yellow(String(report.dataDir)))
   const sessions = report.sessions as { count?: number; error?: string } | undefined
-  lines.push('  sessions: ' + (sessions?.error ? 'error (' + sessions.error + ')' : String(Number(sessions?.count ?? 0)) + ' session(s)'))
+  lines.push('  ' + dim('sessions') + ' ' + (sessions?.error ? red('error (' + sessions.error + ')') : cyan(String(Number(sessions?.count ?? 0)) + ' session(s)')))
   const provider = report.provider as Record<string, unknown> | undefined
   if (!provider) {
-    lines.push('  provider: (missing)')
+    lines.push('  ' + dim('provider') + ' ' + red('(missing)'))
   } else if (provider.offline) {
-    lines.push('  mode: offline (no provider to validate)')
+    lines.push('  ' + dim('mode') + '     ' + yellow('offline') + dim(' (no provider to validate)'))
   } else if (provider.ok) {
-    lines.push('  provider: ok (' + provider.latencyMs + 'ms, ' + (provider.tokens ?? 'unknown') + ' tokens) model=' + provider.model)
+    lines.push('  ' + dim('provider') + ' ' + green(icon.check + ' ok') + dim(' (' + provider.latencyMs + 'ms, ' + (provider.tokens ?? 'unknown') + ' tokens) model=') + cyan(String(provider.model)))
   } else {
-    lines.push('  provider: FAIL (' + provider.error + ')')
+    lines.push('  ' + dim('provider') + ' ' + red(icon.cross + ' FAIL') + dim(' (' + provider.error + ')'))
   }
-  lines.push('doctor: ' + (provider?.ok ? 'ok' : 'failed'))
+  lines.push(provider?.ok ? green('doctor: ok') : red('doctor: failed'))
   output.write(lines.join('\n') + '\n')
 }
 
@@ -305,14 +306,14 @@ async function main(): Promise<void> {
       const store = new SessionStore(options.dataDir)
       await store.initialize()
       const session = await store.create(parsed.target ?? 'New session')
-      output.write((options.json ? JSON.stringify({ id: session.id, name: session.name }) : 'new session: ' + session.id + ' (' + session.name + ')') + '\n')
+      output.write((options.json ? JSON.stringify({ id: session.id, name: session.name }) : green(icon.check + ' new session: ') + cyan(session.id) + dim(' (' + session.name + ')')) + '\n')
       return
     }
     case 'fork': {
       const store = new SessionStore(options.dataDir)
       await store.initialize()
       const branch = await store.branch(options.session ?? parsed.target ?? 'session', undefined, parsed.target ?? 'branch')
-      output.write((options.json ? JSON.stringify({ id: branch.id, parent: options.session }) : 'fork: ' + branch.id) + '\n')
+      output.write((options.json ? JSON.stringify({ id: branch.id, parent: options.session }) : green(icon.check + ' fork: ') + cyan(branch.id)) + '\n')
       return
     }
     case 'list': {
@@ -323,9 +324,17 @@ async function main(): Promise<void> {
         output.write(JSON.stringify(sessions.map((session) => ({ id: session.id, name: session.name, lane: session.lane ?? null }))) + '\n')
         return
       }
-      const lines: string[] = []
-      for (const session of sessions) lines.push(session.id + '  ' + session.name + (session.lane ? '  [' + session.lane + ']' : ''))
-      output.write(lines.join('\n') + (lines.length ? '\n' : ''))
+      if (sessions.length === 0) {
+        output.write(dim('(no sessions yet — run ' + cyan('new <name>') + ' to create one)\n'))
+        return
+      }
+      const rows = sessions.map((session) => [
+        session.id.slice(0, 12),
+        session.name,
+        session.lane ? magenta(session.lane) : dim('—'),
+      ])
+      output.write(table([icon.session + ' SESSION', 'NAME', icon.lane + ' LANE'], rows) + '\n')
+      output.write(dim('  ' + sessions.length + ' session(s)\n'))
       return
     }
     case 'switch': {
@@ -514,10 +523,26 @@ async function main(): Promise<void> {
       output.write(JSON.stringify({ session: session.id, text: completion.text, turns: completion.turns, toolCalls: completion.toolCalls }) + '\n')
       return
     }
-    output.write('\nYou: ' + prompt + '\nTony: ')
-    const completion = await session.ask(prompt, undefined, { onTextDelta: (delta) => output.write(delta) })
-    if (completion.text && !options.stream) output.write(completion.text)
-    output.write('\n[' + completion.turns + ' turn(s), ' + completion.toolCalls + ' tool call(s)]\n')
+    output.write('\n' + dim(icon.user + ' You: ') + bold(prompt) + '\n' + cyan(icon.agent + ' Tony: '))
+    // Spinner while the agent thinks (only when streaming is off and TTY)
+    let spinner: ReturnType<typeof setInterval> | undefined
+    let frame = 0
+    if (!options.stream && process.stdout.isTTY) {
+      spinner = setInterval(() => {
+        process.stdout.write('\r' + magenta(SPINNER_FRAMES[frame % SPINNER_FRAMES.length]!) + ' ')
+        frame += 1
+      }, 80)
+    }
+    try {
+      const completion = await session.ask(prompt, undefined, { onTextDelta: (delta) => output.write(delta) })
+      if (completion.text && !options.stream) output.write(completion.text)
+      output.write(dim('\n[' + completion.turns + ' turn(s), ' + completion.toolCalls + ' tool call(s)]') + '\n')
+    } finally {
+      if (spinner) {
+        clearInterval(spinner)
+        process.stdout.write('\r' + ' '.repeat(2) + '\r')
+      }
+    }
   }
 
   const repl: Record<string, () => Promise<boolean>> = {
