@@ -163,3 +163,52 @@ describe('asWaterfallMiddleware', () => {
     expect(outcome.decision).toBe('allow')
   })
 })
+
+describe('HookBridge PostToolUse mutation', () => {
+  const call = { id: 'c1', name: 'write', arguments: { path: 'x' } }
+
+  it('mutates the result content from a successful hook JSON', async () => {
+    const bridge = new HookBridge({
+      hooks: {
+        PostToolUse: [{
+          matcher: 'write',
+          hooks: [{ command: `node -e "process.stdout.write(JSON.stringify({content: 'REDACTED', isError: false, note: 'scanned'}))"` }],
+        }],
+      },
+    })
+    const mutation = await bridge.runAfterFor(call, 's1')
+    expect(mutation.content).toBe('REDACTED')
+    expect(mutation.isError).toBe(false)
+    expect(mutation.note).toBe('scanned')
+  })
+
+  it('keeps the original result when the hook fails or outputs non-JSON', async () => {
+    const bridge = new HookBridge({
+      hooks: {
+        PostToolUse: [{
+          matcher: '*',
+          hooks: [
+            { command: 'exit 3' },
+            { command: 'echo "just text"' },
+          ],
+        }],
+      },
+    })
+    const mutation = await bridge.runAfterFor(call, 's1')
+    expect(mutation).toEqual({})
+  })
+
+  it('marks result as error from a validator hook', async () => {
+    const bridge = new HookBridge({
+      hooks: {
+        PostToolUse: [{
+          matcher: 'write',
+          hooks: [{ command: `node -e "process.stdout.write(JSON.stringify({isError: true, note: 'lint failed'}))"` }],
+        }],
+      },
+    })
+    const mutation = await bridge.runAfterFor(call, 's1')
+    expect(mutation.isError).toBe(true)
+    expect(mutation.content).toBeUndefined()
+  })
+})
