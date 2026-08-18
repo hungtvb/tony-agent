@@ -1,6 +1,7 @@
 import type {
   LLMToolDefinition,
   ToolContext,
+  ToolPresentation,
   ToolResult,
   TonyTool,
 } from '../types.js'
@@ -70,15 +71,21 @@ export class ToolRegistry {
     return Array.from(this.tools.values())
   }
 
-  definitions(): LLMToolDefinition[] {
-    return this.list().map((tool) => ({
-      type: 'function',
-      function: {
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parameters,
-      },
-    }))
+  definitions(options: { presentation?: ToolPresentation } = {}): LLMToolDefinition[] {
+    return this.list()
+      .filter((tool) => {
+        if (!options.presentation) return true
+        const mode = tool.presentation ?? 'both'
+        return mode === 'both' || mode === options.presentation
+      })
+      .map((tool) => ({
+        type: 'function',
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters,
+        },
+      }))
   }
 
   async execute(name: string, input: unknown, context: ToolContext): Promise<ToolResult> {

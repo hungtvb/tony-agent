@@ -62,6 +62,9 @@ export interface LLMConfig {
 export type RiskLevel = 'read' | 'light' | 'risky' | 'blocked'
 export type PermissionDecision = 'allow' | 'confirm' | 'deny'
 export type PermissionResolution = 'allow-once' | 'allow-session' | 'deny'
+/** How a tool may be surfaced to the model: native JSON call, code-mode
+ *  expression, or both. Mirrors the dsh presentation modes. */
+export type ToolPresentation = 'native' | 'code' | 'both'
 
 export interface ToolContext {
   signal: AbortSignal
@@ -69,6 +72,8 @@ export interface ToolContext {
   site?: string
   adapter?: PageAdapter
   metadata: Record<string, unknown>
+  /** Presentation mode of the current execution (defaults to 'native'). */
+  presentation?: ToolPresentation
 }
 
 export interface ToolResult {
@@ -81,6 +86,8 @@ export interface TonyTool<TInput = unknown> {
   name: string
   description: string
   risk: RiskLevel
+  /** Defaults to 'both' when omitted (tools are usable from any surface). */
+  presentation?: ToolPresentation
   inputSchema: ZodTypeAny
   parameters: JsonSchema
   execute: (input: TInput, context: ToolContext) => Promise<ToolResult> | ToolResult
