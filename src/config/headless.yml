@@ -1,0 +1,11 @@
+# headless profile — agent CLI/daemon without a web UI
+# Applied as: base rows < profile rows < override rows (later wins).
+rows:
+  - id: llm
+    plugin: llm
+    config:
+      stream: false
+  - id: session
+    plugin: session
+    config:
+      lane: default

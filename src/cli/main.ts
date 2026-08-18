@@ -17,6 +17,7 @@ import {
   type PermissionResolution,
 } from '../index.js'
 import { parseCliArgs, type ParsedCli } from './args.js'
+import { PROFILES, resolveProfile, applyProfile, dumpProfile } from '../config/profiles.js'
 
 interface CliOptions {
   command: 'run' | 'doctor'
@@ -343,6 +344,35 @@ async function main(): Promise<void> {
     }
     case 'doctor': {
       await doctor(options)
+      return
+    }
+    case 'profile': {
+      const name = parsed.target ?? parsed.profile ?? 'headless'
+      let profile
+      try {
+        profile = resolveProfile(name)
+      } catch (error) {
+        output.write(`${options.json ? JSON.stringify({ ok: false, error: String(error) }) : `profile: ${String(error)}`}\n`)
+        process.exitCode = 1
+        return
+      }
+      if (parsed.dumpConfig) {
+        const rows = dumpProfile(profile)
+        output.write(`${options.json ? JSON.stringify({ profile: profile.name, rows }) : `profile ${profile.name} config:\n${rows.map((row) => `  ${row.id} -> ${row.plugin}${row.disabled ? ' (disabled)' : ''}${row.config ? ` ${JSON.stringify(row.config)}` : ''}`).join('\n')}`}\n`)
+        return
+      }
+      output.write(`${options.json ? JSON.stringify({ name: profile.name, description: profile.description, rows: applyProfile(profile).size }) : `profile: ${profile.name} — ${profile.description} (${applyProfile(profile).size} rows)`}\n`)
+      return
+    }
+    case 'dump-config': {
+      const name = parsed.profile ?? 'headless'
+      try {
+        const rows = dumpProfile(resolveProfile(name))
+        output.write(`${options.json ? JSON.stringify({ profile: name, rows }) : rows.map((row) => `${row.id}\t${row.plugin}${row.disabled ? '\tdisabled' : ''}${row.config ? `\t${JSON.stringify(row.config)}` : ''}`).join('\n')}\n`)
+      } catch (error) {
+        output.write(`dump-config: ${String(error)}\n`)
+        process.exitCode = 1
+      }
       return
     }
     default:
