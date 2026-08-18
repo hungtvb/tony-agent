@@ -37,11 +37,23 @@ export interface HookMatcherGroup {
   hooks: HookRule[]
 }
 
+/** Output a PostToolUse hook may return to mutate the tool result. */
+export interface HookResultMutation {
+  /** Replacement content for the tool result fed back to the agent. */
+  content?: string
+  /** Mark the result as an error (e.g. a validator rejected the output). */
+  isError?: boolean
+  /** Optional note surfaced in diagnostics. */
+  note?: string
+}
+
 /** Shape of a hooks.json file (Claude Code compatible subset). */
 export interface HooksConfig {
   hooks: {
     /** PreToolUse hook group list. */
     PreToolUse?: HookMatcherGroup[]
+    /** PostToolUse hook group list — runs after the tool executes. */
+    PostToolUse?: HookMatcherGroup[]
   }
 }
 
@@ -76,8 +88,8 @@ export function matchesToolName(matcher: string, toolName: string): boolean {
 }
 
 /** Pick the matcher groups whose pattern matches this tool name. */
-export function matchingGroups(config: HooksConfig, toolName: string): HookMatcherGroup[] {
-  const groups = config.hooks?.PreToolUse ?? []
+export function matchingGroups(config: HooksConfig, toolName: string, phase: 'PreToolUse' | 'PostToolUse' = 'PreToolUse'): HookMatcherGroup[] {
+  const groups = config.hooks?.[phase] ?? []
   return groups.filter((group) => matchesToolName(group.matcher, toolName))
 }
 

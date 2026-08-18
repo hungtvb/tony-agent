@@ -1,6 +1,6 @@
 import type { WaterfallOutcome } from '../events/waterfall.js'
 import type { ToolCall } from '../types.js'
-import type { HooksConfig, HookDecisionResult, ResolvedHook } from './config.js'
+import type { HooksConfig, HookDecisionResult, HookResultMutation, ResolvedHook } from './config.js'
 import { buildHookPayload, matchingGroups } from './config.js'
 import { runHookCommand } from './runner.js'
 import { mergeHookDecisions, parseHookOutput } from './parse.js'
@@ -30,6 +30,42 @@ export class HookBridge {
     const groups = matchingGroups(this.config, call.name)
     const rules = groups.flatMap((group) => group.hooks)
     return rules.map((rule) => ({ rule, payload }))
+  }
+
+  /** PostToolUse hooks that apply to this tool call. */
+  resolveAfter(call: ToolCall, sessionId: string): ResolvedHook[] {
+    const payload = buildHookPayload(call, sessionId, this.cwd)
+    const groups = matchingGroups(this.config, call.name, 'PostToolUse')
+    const rules = groups.flatMap((group) => group.hooks)
+    return rules.map((rule) => ({ rule, payload }))
+  }
+
+  /**
+   * Run PostToolUse hooks after a tool executed and merge any result
+   * mutations. Hooks with exit 0 may return `{ content, isError }` on stdout
+   * to rewrite the result; anything else keeps the original result.
+   * Never throws.
+   */
+  async runAfterFor(call: ToolCall, sessionId: string): Promise<HookResultMutation> {
+    const resolved = this.resolveAfter(call, sessionId)
+    const merged: HookResultMutation = {}
+    for (const hook of resolved) {
+      const raw = await runHookCommand(hook.rule, hook.payload)
+      if (raw.exitCode !== 0) continue
+      const stdout = raw.output.trim()
+      if (!stdout) continue
+      try {
+        const parsed = JSON.parse(stdout) as HookResultMutation
+        if (parsed && (typeof parsed.content === 'string' || typeof parsed.isError === 'boolean')) {
+          if (parsed.content !== undefined) merged.content = parsed.content
+          if (parsed.isError !== undefined) merged.isError = parsed.isError
+          if (parsed.note) merged.note = parsed.note
+        }
+      } catch {
+        // non-JSON stdout from a successful hook — ignore, keep original result
+      }
+    }
+    return merged
   }
 
   /** Run every applicable hook and merge the outcome. Never throws. */
