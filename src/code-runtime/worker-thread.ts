@@ -1,4 +1,4 @@
-import { CodeRuntime, CodeRunResult } from './runtime.js'
+import { CodeRuntime, CodeRunResult, validateCodePolicy } from './runtime.js'
 
 type NodeWorker = import('node:worker_threads').Worker
 
@@ -38,6 +38,11 @@ export function createWorkerThreadRuntime(): CodeRuntime {
     language: 'typescript',
     async run(request) {
       const started = Date.now()
+      // policy pre-flight: reject before anything reaches the worker
+      const policyIssues = validateCodePolicy(request.code, request.policy)
+      if (policyIssues.length > 0) {
+        return { ok: false, stdout: '', stderr: '', error: `Blocked by sandbox policy: ${policyIssues.join('; ')}`, durationMs: Date.now() - started }
+      }
       const target = await ensureWorker()
       const result = await new Promise<CodeRunResult>((resolve) => {
         let messageHandler: ((data: unknown) => void) | undefined
