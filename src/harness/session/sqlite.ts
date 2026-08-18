@@ -3,6 +3,7 @@ import type { Entry } from './types.js'
 import type { Session } from './jsonl/repo.js'
 
 const SAFE_ID = /^[a-z0-9_-]{1,128}$/
+const SCHEMA_VERSION = 1
 
 const require = createRequire(import.meta.url)
 // better-sqlite3 is a CJS native addon; require() avoids esModuleInterop concerns
@@ -18,6 +19,15 @@ function safeId(id: string): void {
  * SQLite session backend (better-sqlite3, WAL mode). Same Session interface as
  * the JSONL repo so the conformance suite runs against both. One `sessions`
  * table with entries keyed by session id; branch copies the head entries.
+ *
+ * Durability/integrity setup applied on open:
+ *   - journal_mode = WAL        (concurrent readers + single writer)
+ *   - synchronous = NORMAL      (WAL-safe; fsync on checkpoint, not every commit)
+ *   - foreign_keys = ON         (FK enforcement for session_id references)
+ *   - busy_timeout = 5000       (avoid SQLITE_BUSY under contention)
+ *   - journal_size_limit        (cap WAL growth)
+ *   - user_version = 1          (schema migration marker)
+ *   - integrity_check           (fail fast on corrupted DB)
  */
 export class SqliteSessionRepo {
   readonly directory: string
@@ -27,23 +37,41 @@ export class SqliteSessionRepo {
     this.directory = dbPath
     const db = new BetterSqlite3(dbPath)
     db.pragma('journal_mode = WAL')
+    db.pragma('synchronous = NORMAL')
+    db.pragma('foreign_keys = ON')
     db.pragma('busy_timeout = 5000')
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS sessions (
-        id TEXT PRIMARY KEY,
-        seq INTEGER NOT NULL DEFAULT 0
-      );
-      CREATE TABLE IF NOT EXISTS entries (
-        session_id TEXT NOT NULL,
-        seq INTEGER NOT NULL,
-        parent_id INTEGER NOT NULL,
-        timestamp INTEGER NOT NULL,
-        kind TEXT NOT NULL,
-        data TEXT NOT NULL,
-        PRIMARY KEY (session_id, seq)
-      );
-      CREATE INDEX IF NOT EXISTS idx_entries_session ON entries(session_id);
-    `)
+    db.pragma('journal_size_limit = 67108864') // 64 MB
+    // Fail fast on corruption instead of serving bad data.
+    const integrity = db.pragma('integrity_check', { simple: true }) as unknown as string
+    if (integrity !== 'ok') {
+      db.close()
+      throw new Error(`SQLite integrity check failed: ${integrity}`)
+    }
+    const version = db.pragma('user_version', { simple: true }) as number
+    if (version > SCHEMA_VERSION) {
+      db.close()
+      throw new Error(`SQLite schema version ${version} is newer than supported ${SCHEMA_VERSION}`)
+    }
+    if (version < SCHEMA_VERSION) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS sessions (
+          id TEXT PRIMARY KEY,
+          seq INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS entries (
+          session_id TEXT NOT NULL,
+          seq INTEGER NOT NULL,
+          parent_id INTEGER NOT NULL,
+          timestamp INTEGER NOT NULL,
+          kind TEXT NOT NULL,
+          data TEXT NOT NULL,
+          PRIMARY KEY (session_id, seq),
+          FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_entries_session ON entries(session_id);
+      `)
+      db.pragma(`user_version = ${SCHEMA_VERSION}`)
+    }
     this.db = db
   }
 
@@ -63,7 +91,7 @@ export class SqliteSessionRepo {
       for (const entry of entries) {
         insert.run(id, entry.seq, entry.parentId, entry.timestamp, entry.kind, JSON.stringify(entry))
       }
-      this.db.prepare('INSERT OR REPLACE INTO sessions (id, seq) VALUES (?, ?)').run(id, entries.length)
+      this.db.prepare('INSERT INTO sessions (id, seq) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET seq = excluded.seq').run(id, entries.length)
     })()
   }
 
@@ -99,6 +127,9 @@ export class SqliteSessionRepo {
     safeId(newId)
     const source = this.readEntries(id)
     const head = source.filter((entry) => entry.seq <= fromSeq)
+    // materialize the target session row first so the FK (session_id → sessions)
+    // is satisfied before we insert entries.
+    this.db.prepare('INSERT OR IGNORE INTO sessions (id, seq) VALUES (?, 0)').run(newId)
     this.writeEntries(newId, head)
     return this.makeSession(newId)
   }

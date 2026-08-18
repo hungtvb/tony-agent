@@ -16,6 +16,68 @@ afterEach(async () => {
 })
 
 describe('SqliteSessionRepo (conformance suite)', () => {
+  it('sets durability + integrity pragmas on open', async () => {
+    const directory = await tempDir()
+    const repo = new SqliteSessionRepo(join(directory, 'sessions.db'))
+    // expose internals for verification via a fresh handle
+    const { createRequire } = await import('node:module')
+    const Better = createRequire(import.meta.url)('better-sqlite3') as typeof import('better-sqlite3')
+    const probe = new Better(join(directory, 'sessions.db'))
+    expect(probe.pragma('journal_mode', { simple: true })).toBe('wal')
+    expect(probe.pragma('synchronous', { simple: true })).toBe(1) // NORMAL
+    expect(probe.pragma('foreign_keys', { simple: true })).toBe(1)
+    expect(probe.pragma('user_version', { simple: true })).toBe(1)
+    probe.close()
+    repo.close()
+  })
+
+  it('rejects a database with a newer schema version', async () => {
+    const directory = await tempDir()
+    const dbPath = join(directory, 'sessions.db')
+    const { createRequire } = await import('node:module')
+    const Better = createRequire(import.meta.url)('better-sqlite3') as typeof import('better-sqlite3')
+    const probe = new Better(dbPath)
+    probe.exec('CREATE TABLE sessions (id TEXT PRIMARY KEY, seq INTEGER NOT NULL DEFAULT 0)')
+    probe.pragma('user_version = 99')
+    probe.close()
+    expect(() => new SqliteSessionRepo(dbPath)).toThrow(/schema version 99 is newer than supported 1/)
+  })
+
+  it('throws on a corrupted database (integrity_check)', async () => {
+    const directory = await tempDir()
+    const dbPath = join(directory, 'sessions.db')
+    const { createRequire } = await import('node:module')
+    const Better = createRequire(import.meta.url)('better-sqlite3') as typeof import('better-sqlite3')
+    const probe = new Better(dbPath)
+    probe.exec('CREATE TABLE t (x INTEGER)')
+    probe.exec('INSERT INTO t VALUES (1)')
+    probe.close()
+    // Flip bytes mid-file (page area, past the 100-byte header) so the file
+    // still opens but integrity_check reports corruption.
+    const { readFile, writeFile } = await import('node:fs/promises')
+    const bytes = await readFile(dbPath)
+    const offset = Math.min(bytes.length - 1, 4096)
+    bytes[offset] = (bytes[offset] ?? 0) ^ 0xff
+    await writeFile(dbPath, bytes)
+    expect(() => new SqliteSessionRepo(dbPath)).toThrow(/integrity check failed/)
+  })
+
+  it('applies ON DELETE CASCADE when a session is deleted', async () => {
+    const directory = await tempDir()
+    const repo = new SqliteSessionRepo(join(directory, 'sessions.db'))
+    const session = await repo.create('cascade')
+    await session.append(createEntry({ seq: 1, parentId: 0, kind: 'message', message: { role: 'user', content: 'x' } }))
+    await repo.delete('cascade')
+    expect(await repo.list()).toEqual([])
+    const { createRequire } = await import('node:module')
+    const Better = createRequire(import.meta.url)('better-sqlite3') as typeof import('better-sqlite3')
+    const probe = new Better(join(directory, 'sessions.db'))
+    const orphans = probe.prepare('SELECT COUNT(*) AS n FROM entries').get() as { n: number }
+    expect(orphans.n).toBe(0)
+    probe.close()
+    repo.close()
+  })
+
   it('creates a session and appends entries with seq continuity', async () => {
     const directory = await tempDir()
     const repo = new SqliteSessionRepo(join(directory, 'sessions.db'))
