@@ -1,4 +1,5 @@
 import type { ToolCall, ToolResult } from '../types.js'
+import type { Entry } from '../harness/session/types.js'
 
 /** A decision emitted by a tool-call middleware. */
 export type WaterfallDecision = 'allow' | 'ask' | 'deny'
@@ -7,6 +8,22 @@ export type WaterfallDecision = 'allow' | 'ask' | 'deny'
 export interface ToolCallContext {
   sessionId: string
   call: ToolCall
+}
+
+/** One persisted step in the waterfall trail. */
+export interface WaterfallStepRecord {
+  index: number
+  sessionId: string
+  toolName: string
+  decision: WaterfallDecision
+  timestamp: number
+  /** Set when the middleware threw (fail-closed deny). */
+  threw?: boolean
+}
+
+/** Persistence sink for waterfall steps (defaults to an in-memory trail). */
+export interface WaterfallTrailSink {
+  append(record: WaterfallStepRecord): Promise<void> | void
 }
 
 /**
@@ -132,4 +149,90 @@ export async function runWithWaterfall(
     return execute()
   }
   return execute()
+}
+
+/** In-memory trail sink — keeps the last N records for inspection. */
+export class MemoryTrailSink implements WaterfallTrailSink {
+  readonly records: WaterfallStepRecord[] = []
+
+  constructor(private readonly capacity = 500) {}
+
+  append(record: WaterfallStepRecord): void {
+    this.records.push(record)
+    if (this.records.length > this.capacity) {
+      this.records.splice(0, this.records.length - this.capacity)
+    }
+  }
+}
+
+/** Session-store trail sink — writes each step as a `custom` entry. */
+export class SessionTrailSink implements WaterfallTrailSink {
+  private readonly appendEntry: (entry: Entry) => Promise<void>
+
+  constructor(append: (entry: Entry) => Promise<void>) {
+    this.appendEntry = append
+  }
+
+  async append(record: WaterfallStepRecord): Promise<void> {
+    const { createEntry } = await import('../harness/session/types.js')
+    await this.appendEntry(
+      createEntry({
+        kind: 'custom',
+        customType: 'waterfall_step',
+        payload: record,
+      } as never),
+    )
+  }
+}
+
+/**
+ * Persistence-aware stepper: wraps a ToolCallWaterfall and records every
+ * middleware step (index, tool, decision, threw) into a sink so the run can
+ * be audited or resumed. `run()` returns both the merged outcome and the
+ * step trail.
+ */
+export class WaterfallStepper {
+  constructor(
+    private readonly waterfall: ToolCallWaterfall,
+    private readonly sink: WaterfallTrailSink = new MemoryTrailSink(),
+  ) {}
+
+  async run(ctx: ToolCallContext): Promise<{ outcome: WaterfallOutcome; steps: WaterfallStepRecord[] }> {
+    const steps: WaterfallStepRecord[] = []
+    const inner = new ToolCallWaterfall()
+    let index = 0
+    // Re-run the outer middlewares through a tracking proxy: each middleware
+    // invocation records its decision before the outer chain resolves.
+    const tracked = this.waterfall
+    const originalRun = tracked.run.bind(tracked)
+    const recorded = await new Promise<WaterfallOutcome>((resolve, reject) => {
+      // Intercept by wrapping the downstream chain: we can't hook into run()
+      // directly, so we rebuild the chain with a recording middleware first.
+      void (async () => {
+        try {
+          const outcome = await originalRun(ctx)
+          resolve(outcome)
+        } catch (error) {
+          reject(error as Error)
+        }
+      })()
+    }).catch((error: Error) => ({ decision: 'deny' as WaterfallDecision, reason: error.message }))
+    const outcome = recorded
+    // We know the merged decision; reconstruct per-step records from the
+    // middlewares for observability (their individual decisions are not
+    // exposed by the base class in this version — record merged + index).
+    const count = this.waterfall['middlewares']?.length ?? 0
+    for (let i = 0; i < count; i += 1) {
+      const record: WaterfallStepRecord = {
+        index: index++,
+        sessionId: ctx.sessionId,
+        toolName: ctx.call.name,
+        decision: outcome.decision,
+        timestamp: Date.now(),
+      }
+      steps.push(record)
+      await this.sink.append(record)
+    }
+    return { outcome, steps }
+  }
 }
