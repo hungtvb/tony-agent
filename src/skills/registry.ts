@@ -165,6 +165,29 @@ export async function loadSkillsFromDirectory(
   return skills.sort((a, b) => a.name.localeCompare(b.name))
 }
 
+/** Filesystem-backed SkillProvider: one directory of `SKILL.md` / `*.md` skills. */
+export class DirectorySkillProvider implements SkillProvider {
+  readonly name: string
+
+  constructor(
+    private readonly directory: string,
+    name?: string,
+  ) {
+    this.name = name ?? `dir:${directory}`
+  }
+
+  async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]> {
+    const skills = await loadSkillsFromDirectory(this.directory, { signal: options.signal })
+    return skills.map(({ name, description, invocation }) => ({ name, description, invocation }))
+  }
+
+  async get(name: string, options: SkillLookupOptions = {}): Promise<Skill | undefined> {
+    options.signal?.throwIfAborted()
+    const skills = await loadSkillsFromDirectory(this.directory, { signal: options.signal })
+    return skills.find((skill) => skill.name === name)
+  }
+}
+
 function parseFrontmatter(raw: string, fallbackName: string): { name: string; description: string } {
   if (!raw.startsWith('---')) return { name: fallbackName, description: '' }
   const end = raw.indexOf('\n---', 3)

@@ -148,3 +148,47 @@ describe('SkillRegistry cancellation', () => {
     expect(spy).not.toHaveBeenCalled()
   })
 })
+describe('DirectorySkillProvider', () => {
+  it('discovers *.md skills with frontmatter and loads content', async () => {
+    const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dir = await mkdtemp(join(tmpdir(), 'tony-skills-'))
+    try {
+      await writeFile(join(dir, 'alpha.md'), '---\nname: alpha-skill\ndescription: First skill\n---\n# Alpha body')
+      await writeFile(join(dir, 'beta.md'), 'no frontmatter here')
+      await writeFile(join(dir, 'notes.txt'), 'ignored')
+
+      const provider = new (await import('../src/skills/registry.js')).DirectorySkillProvider(dir)
+      const summaries = await provider.list()
+      expect(summaries.map((s) => s.name)).toEqual(['alpha-skill', 'beta'])
+      expect(summaries.find((s) => s.name === 'alpha-skill')?.description).toBe('First skill')
+
+      const alpha = await provider.get('alpha-skill')
+      expect(alpha?.content).toContain('# Alpha body')
+      expect(alpha?.invocation.modelInvocable).toBe(true)
+      expect(await provider.get('missing')).toBeUndefined()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('works through SkillRegistry provider layer', async () => {
+    const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dir = await mkdtemp(join(tmpdir(), 'tony-skills-reg-'))
+    try {
+      await writeFile(join(dir, 'alpha.md'), '---\nname: alpha-skill\ndescription: First\n---\nBody')
+      const registry = new SkillRegistry()
+      const { DirectorySkillProvider } = await import('../src/skills/registry.js')
+      registry.registerProvider(() => new DirectorySkillProvider(dir, 'disk'))
+      const names = (await registry.list()).map((s) => s.name)
+      expect(names).toContain('alpha-skill')
+      const loaded = await registry.getForModel('alpha-skill')
+      expect(loaded?.content).toContain('Body')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
