@@ -22,6 +22,7 @@
     "dev": "tsx src/cli/demo.ts",
     "demo": "tsx src/cli/demo.ts",
     "cli": "tsx src/cli/main.ts",
+    "smoke": "tsx scripts/smoke.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
