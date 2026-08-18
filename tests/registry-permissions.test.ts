@@ -69,3 +69,49 @@ describe('PermissionPolicy', () => {
     expect(policy.check(tool, 'example.com', 's1')).toBe('allow')
   })
 })
+
+describe('ToolRegistry dynamic registration', () => {
+  const mk = (name: string) => ({
+    name,
+    description: `Tool ${name}`,
+    risk: 'read' as const,
+    inputSchema: { safeParse: () => ({ success: true as const, data: {} }) },
+    parameters: { type: 'object' },
+    execute: async () => ({ content: `executed ${name}` }),
+  })
+
+  it('unregisters a tool at runtime', () => {
+    const registry = new ToolRegistry().register(mk('alpha'))
+    expect(registry.has('alpha')).toBe(true)
+    expect(registry.unregister('alpha')).toBe(true)
+    expect(registry.has('alpha')).toBe(false)
+    expect(registry.unregister('alpha')).toBe(false)
+  })
+
+  it('replaces a tool implementation under the same name', async () => {
+    const registry = new ToolRegistry().register(mk('alpha'))
+    const v2 = { ...mk('alpha'), execute: async () => ({ content: 'v2' }) }
+    registry.replace(v2)
+    expect(registry.get('alpha')).toBe(v2)
+    expect(await registry.execute('alpha', {}, { signal: new AbortController().signal, sessionId: 's' })).toEqual({ content: 'v2' })
+  })
+
+  it('emits change events and unsubscribes', () => {
+    const registry = new ToolRegistry()
+    const seen: string[] = []
+    const unsubscribe = registry.subscribe((change) => seen.push(change.type))
+    registry.register(mk('a'))
+    registry.replace(mk('a'))
+    registry.unregister('a')
+    expect(seen).toEqual(['registered', 'replaced', 'unregistered'])
+    unsubscribe()
+    registry.register(mk('b'))
+    expect(seen).toEqual(['registered', 'replaced', 'unregistered'])
+  })
+
+  it('prevents duplicate registration and rejects bad names', () => {
+    const registry = new ToolRegistry().register(mk('a'))
+    expect(() => registry.register(mk('a'))).toThrow(/already registered/)
+    expect(() => registry.register(mk('Bad Name'))).toThrow(/Invalid tool name/)
+  })
+})
