@@ -6,7 +6,7 @@ import { SessionQueryEngine } from '../src/query/engine.js'
 import { createEntry, type Entry } from '../src/harness/session/types.js'
 import type { SessionMeta } from '../src/query/types.js'
 
-const SCHEMA_VERSION = 3
+const SCHEMA_VERSION = 4
 
 const directories: string[] = []
 async function tempDir(): Promise<string> {
