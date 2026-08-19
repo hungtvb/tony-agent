@@ -34,15 +34,15 @@ describe('fs service seam', () => {
     }
   })
 
-  it('consumer produces fs_read/fs_write/fs_list tools', () => {
+  it('consumer produces fs:read/fs:write/fs:list tools', () => {
     const reg = new ServiceRegistry()
     reg.register(createLocalFsProvider({ root: tmpdir() }))
     const tools = reg.consume('fs', createFsConsumer())
     const names = tools.map((t) => t.name).sort()
-    expect(names).toEqual(['fs_list', 'fs_read', 'fs_write'])
+    expect(names).toEqual(['fs:list', 'fs:read', 'fs:write'])
   })
 
-  it('fs_read returns isError on escape attempt (fail-closed)', async () => {
+  it('fs:read returns isError on escape attempt (fail-closed)', async () => {
     const root = await tempRoot()
     try {
       const reg = new ServiceRegistry()

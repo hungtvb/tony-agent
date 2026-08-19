@@ -12,7 +12,7 @@ const stringProp = (description: string) => ({ type: 'string', description })
 
 /**
  * Consumer that wraps a mounted fs service into model-facing tools
- * (fs_read / fs_write / fs_list). Swapping the provider (local → remote)
+ * (fs:read / fs:write / fs:list). Swapping the provider (local → remote)
  * changes the service, never these tools.
  */
 export function createFsConsumer(): ServiceConsumer<FsService> {
@@ -20,7 +20,7 @@ export function createFsConsumer(): ServiceConsumer<FsService> {
     definition: fsDefinition,
     uses(service: FsService): TonyTool[] {
       const read: TonyTool<{ path: string }> = {
-        name: 'fs_read',
+        name: 'fs:read',
         description: 'Read a file inside the workspace.',
         risk: 'read',
         inputSchema: z.object({ path: z.string() }),
@@ -35,7 +35,7 @@ export function createFsConsumer(): ServiceConsumer<FsService> {
       }
 
       const write: TonyTool<{ path: string; content: string }> = {
-        name: 'fs_write',
+        name: 'fs:write',
         description: 'Write content to a file inside the workspace (creates or overwrites).',
         risk: 'risky',
         inputSchema: z.object({ path: z.string(), content: z.string() }),
@@ -54,7 +54,7 @@ export function createFsConsumer(): ServiceConsumer<FsService> {
       }
 
       const list: TonyTool<{ path: string }> = {
-        name: 'fs_list',
+        name: 'fs:list',
         description: 'List directory contents inside the workspace.',
         risk: 'read',
         inputSchema: z.object({ path: z.string() }),

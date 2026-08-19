@@ -13,7 +13,7 @@ function scriptedComplete(text: string) {
   }
 }
 
-describe('delegate_subagent tool', () => {
+describe('subagent:delegate tool', () => {
   it('delegates to the in-process provider and returns child text', async () => {
     const registry = new SubagentRegistry()
     registry.register(createInProcessSubagentProvider({ complete: scriptedComplete('child answer 42') }))

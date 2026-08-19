@@ -12,7 +12,7 @@ const stringProp = (description: string) => ({ type: 'string', description })
 
 /**
  * Consumer wrapping a mounted shell service into a single model-facing tool
- * (`shell_run`). Provider swap (local → remote/sandbox) never touches this
+ * (`shell:run`). Provider swap (local → remote/sandbox) never touches this
  * consumer or the model's view of the tool.
  */
 export function createShellConsumer(): ServiceConsumer<ShellService> {
@@ -20,7 +20,7 @@ export function createShellConsumer(): ServiceConsumer<ShellService> {
     definition: shellDefinition,
     uses(service: ShellService): TonyTool<any>[] {
       const tool: TonyTool<{ command: string; cwd?: string }> = {
-        name: 'shell_run',
+        name: 'shell:run',
         description:
           'Run an allow-listed command inside the workspace root (ls, pwd, cat, echo, head, tail, wc, find, grep, node, npm, git). Returns stdout on success, error on failure.',
         risk: 'risky',

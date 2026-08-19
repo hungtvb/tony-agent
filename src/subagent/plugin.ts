@@ -49,7 +49,7 @@ export function createSubagentConsumer(): ServiceConsumer<SubagentProvider> {
     definition: subagentServiceDefinition,
     uses(service: SubagentProvider): TonyTool {
       return {
-        name: 'delegate_subagent',
+        name: 'subagent:delegate',
         description:
           'Delegate a task to a subagent with an isolated session. Use for reasoning-heavy subtasks or parallelizable work; the subagent returns its final text outcome. Requires a subagent provider to be mounted.',
         risk: 'risky' as const,
@@ -89,7 +89,7 @@ export function createSubagentConsumer(): ServiceConsumer<SubagentProvider> {
  * The subagent plugin: mounts the subagent service provider + consumer into
  * the plugin context. Mounting requires the plugin host to have built a
  * context with `services`, `tools`, and the LLM completer; the provider is
- * registered and a `delegate_subagent` tool is exposed through the tool scope.
+ * registered and a `subagent:delegate` tool is exposed through the tool scope.
  */
 export function createSubagentPlugin(options: InProcessSubagentOptions): Plugin {
   return {
@@ -102,11 +102,11 @@ export function createSubagentPlugin(options: InProcessSubagentOptions): Plugin 
       const consumer = createSubagentConsumer()
       const produced = consumer.uses(ctx.services.resolve<SubagentProvider>(SUBAGENT_SERVICE_ID, ctx))
       const tool = (Array.isArray(produced) ? produced[0] : produced) as TonyTool
-      ctx.tools.shadow('delegate_subagent', tool)
+      ctx.tools.shadow('subagent:delegate', tool)
       return {
         dispose() {
           unregister()
-          ctx.tools.deny('delegate_subagent')
+          ctx.tools.deny('subagent:delegate')
         },
       }
     },
