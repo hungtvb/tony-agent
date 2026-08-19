@@ -18,6 +18,8 @@ import {
   type PermissionResolution,
 } from '../index.js'
 import { parseCliArgs } from './args.js'
+import { SessionQueryEngine } from '../query/engine.js'
+import type { Entry } from '../harness/session/types.js'
 import { resolveProfile, applyProfile, dumpProfile } from '../config/profiles.js'
 import { bold, cyan, dim, green, red, yellow, magenta, icon, table, SPINNER_FRAMES } from './theme.js'
 
@@ -93,6 +95,7 @@ const HELP_TEXT = [
   '  ' + cyan('doctor') + ' [--json]                                ' + dim('Deep environment report'),
   '  ' + cyan('profile') + ' [<name>] [--dump-config]               ' + dim('Show/apply a config profile'),
   '  ' + cyan('dump-config') + ' [--profile <name>]                 ' + dim('Print resolved config rows'),
+  '  ' + cyan('search') + ' "<query>" [--session <id>]              ' + dim('Full-text search session history (FTS5)'),
   '  ' + cyan('help') + ', --help, -h                               ' + dim('Show this help'),
   '',
   bold('Options:'),
@@ -278,6 +281,17 @@ async function cmdSteer(options: CliOptions, text?: string): Promise<void> {
   await store.initialize()
   const sessionId = options.session ?? 'session'
   output.write((options.json ? JSON.stringify({ session: sessionId, steered: text ?? '' }) : 'steer: session ' + sessionId + ' <- ' + (text ?? '(empty)')) + '\n')
+}
+
+/** Adapter: SessionStore entry → query-engine Entry (kind = message). */
+function toQueryEntries(entries: ReadonlyArray<{ id: string; parentId?: string; role: string; content: string; timestamp: number }>): Entry[] {
+  return entries.map((entry, index) => ({
+    seq: index + 1,
+    parentId: typeof entry.parentId === 'string' ? index : 0,
+    timestamp: entry.timestamp,
+    kind: 'message' as const,
+    message: { role: entry.role as 'user' | 'system' | 'assistant', content: entry.content },
+  }))
 }
 
 async function main(): Promise<void> {
@@ -479,6 +493,57 @@ async function main(): Promise<void> {
         output.write('dump-config: ' + String(error) + '\n')
         process.exitCode = 1
       }
+      return
+    }
+    case 'search': {
+      const query = parsed.prompt ?? ''
+      if (!query) {
+        output.write((options.json ? JSON.stringify({ ok: false, error: 'search: missing query' }) : 'search: missing query (usage: tony-agent search "<query>" [--session <id>] [--json])') + '\n')
+        process.exitCode = 1
+        return
+      }
+      const indexPath = join(options.dataDir, 'index.db')
+      const engine = new SessionQueryEngine({ indexPath })
+      const store = new SessionStore(options.dataDir)
+      await store.initialize()
+      // Build index from session store entries (derived, rebuildable).
+      const info = await store.list()
+      for (const sessionInfo of info) {
+        const entries = await store.readEntries(sessionInfo.id)
+        const sessionId = sessionInfo.id
+        engine.sync(sessionId, toQueryEntries(entries), {
+          sessionId,
+          name: sessionInfo.name ?? '',
+          createdAt: sessionInfo.createdAt ?? 0,
+          updatedAt: sessionInfo.updatedAt ?? 0,
+        })
+      }
+      if (options.session) {
+        const result = engine.searchEvents(query, { sessionId: options.session })
+        if (options.json) {
+          output.write(JSON.stringify({ ok: true, scope: 'session', hits: result.hits }) + '\n')
+        } else {
+          if (result.hits.length === 0) {
+            output.write('search: no matches in session ' + options.session + '\n')
+          }
+          for (const hit of result.hits) {
+            output.write('[' + hit.sessionId + '#' + hit.seq + ' ' + hit.kind + '] ' + hit.snippet + '\n')
+          }
+        }
+      } else {
+        const result = engine.searchSessions(query)
+        if (options.json) {
+          output.write(JSON.stringify({ ok: true, scope: 'sessions', hits: result.hits }) + '\n')
+        } else {
+          if (result.hits.length === 0) {
+            output.write('search: no matches\n')
+          }
+          for (const hit of result.hits) {
+            output.write('[' + hit.sessionId + ' x' + hit.matchCount + '] ' + (hit.bestEvent?.snippet ?? '') + '\n')
+          }
+        }
+      }
+      engine.close()
       return
     }
     default:
