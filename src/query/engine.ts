@@ -2,7 +2,7 @@ import { createRequire } from 'node:module'
 import type { Entry } from '../harness/session/types.js'
 import type { EventHit, LineageResult, SearchCursor, SearchOptions, SearchResult, SessionHit, SessionMeta } from './types.js'
 
-const SCHEMA_VERSION = 3
+const SCHEMA_VERSION = 4
 
 const require = createRequire(import.meta.url)
 // better-sqlite3 is a CJS native addon; require() avoids esModuleInterop concerns
@@ -71,6 +71,26 @@ export class SessionQueryEngine {
           tokenize = 'unicode61'
         );
         CREATE INDEX IF NOT EXISTS idx_meta_updated ON session_meta(updated_at);
+        CREATE TABLE IF NOT EXISTS entities (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL DEFAULT 'entity',
+          description TEXT NOT NULL DEFAULT '',
+          UNIQUE(session_id, name)
+        );
+        CREATE TABLE IF NOT EXISTS relations (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id TEXT NOT NULL,
+          source TEXT NOT NULL,
+          target TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          UNIQUE(session_id, source, target, kind)
+        );
+        CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name);
+        CREATE INDEX IF NOT EXISTS idx_relations_source ON relations(source);
+        CREATE INDEX IF NOT EXISTS idx_relations_target ON relations(target);
       `)
       db.pragma(`user_version = ${SCHEMA_VERSION}`)
     }
