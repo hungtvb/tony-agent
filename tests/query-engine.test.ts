@@ -6,7 +6,7 @@ import { SessionQueryEngine } from '../src/query/engine.js'
 import { createEntry, type Entry } from '../src/harness/session/types.js'
 import type { SessionMeta } from '../src/query/types.js'
 
-const SCHEMA_VERSION = 2
+const SCHEMA_VERSION = 3
 
 const directories: string[] = []
 async function tempDir(): Promise<string> {
@@ -206,6 +206,60 @@ describe('SessionQueryEngine skeleton', () => {
     const ids1 = page1.hits.map((h) => h.seq).sort()
     const ids2 = page2.hits.map((h) => h.seq).sort()
     expect(ids1).not.toEqual(ids2)
+    engine.close()
+  })
+
+  it('traceSession returns ancestors and descendants from branch chain', async () => {
+    const dir = await tempDir()
+    const engine = new SessionQueryEngine({ indexPath: join(dir, 'index.db') })
+    // A → B (branch from A) → C (branch from B)
+    engine.sync('A', [
+      createEntry({ kind: 'custom', customType: 'branch', payload: 'root', seq: 1, parentId: 0 }),
+    ], { sessionId: 'A', name: 'A', createdAt: 1, updatedAt: 2 })
+    engine.sync('B', [
+      createEntry({ kind: 'custom', customType: 'branch', payload: 'from A', seq: 1, parentId: 0 }),
+    ], { sessionId: 'B', name: 'B', createdAt: 1, updatedAt: 2 })
+    engine.sync('C', [
+      createEntry({ kind: 'custom', customType: 'branch', payload: 'from B', seq: 1, parentId: 0 }),
+    ], { sessionId: 'C', name: 'C', createdAt: 1, updatedAt: 2 })
+    engine.setBranchParent('B', 'A')
+    engine.setBranchParent('C', 'B')
+    const traceA = engine.traceSession('A')
+    expect(traceA.ancestors).toEqual([])
+    expect(traceA.descendants).toEqual(['B', 'C'])
+    expect(traceA.parentId).toBeUndefined()
+    const traceC = engine.traceSession('C')
+    expect(traceC.ancestors).toEqual(['B', 'A'])
+    expect(traceC.descendants).toEqual([])
+    expect(traceC.parentId).toBe('B')
+    engine.close()
+  })
+
+  it('traceSession detects cycles and throws INVALID_LINEAGE', async () => {
+    const dir = await tempDir()
+    const engine = new SessionQueryEngine({ indexPath: join(dir, 'index.db') })
+    // self cycle: A branch marker linking A → A
+    engine.sync('A', [
+      createEntry({ kind: 'custom', customType: 'branch', payload: 'link A→A', seq: 1, parentId: 0 }),
+    ], { sessionId: 'A', name: 'A', createdAt: 1, updatedAt: 2 })
+    // force a parent link by injecting a custom entry carrying a parent ref
+    // (test hook: branchParent map via custom payload)
+    engine.setBranchParent('A', 'A')
+    expect(() => engine.traceSession('A')).toThrow(/INVALID_LINEAGE/)
+    engine.close()
+  })
+
+  it('traceEvent follows parentId chain within a session', async () => {
+    const dir = await tempDir()
+    const engine = new SessionQueryEngine({ indexPath: join(dir, 'index.db') })
+    engine.sync('s1', [
+      createEntry({ kind: 'message', message: { role: 'user', content: 'first' }, seq: 1, parentId: 0 }),
+      createEntry({ kind: 'message', message: { role: 'assistant', content: 'second' }, seq: 2, parentId: 1 }),
+      createEntry({ kind: 'message', message: { role: 'user', content: 'third' }, seq: 3, parentId: 2 }),
+    ], { sessionId: 's1', name: 'S', createdAt: 1, updatedAt: 2 })
+    const trace = engine.traceEvent('s1', 3)
+    expect(trace.event.seq).toBe(3)
+    expect(trace.ancestors.map((e) => e.seq)).toEqual([2, 1])
     engine.close()
   })
 })

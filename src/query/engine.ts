@@ -1,8 +1,8 @@
 import { createRequire } from 'node:module'
 import type { Entry } from '../harness/session/types.js'
-import type { EventHit, SearchCursor, SearchOptions, SearchResult, SessionHit, SessionMeta } from './types.js'
+import type { EventHit, LineageResult, SearchCursor, SearchOptions, SearchResult, SessionHit, SessionMeta } from './types.js'
 
-const SCHEMA_VERSION = 2
+const SCHEMA_VERSION = 3
 
 const require = createRequire(import.meta.url)
 // better-sqlite3 is a CJS native addon; require() avoids esModuleInterop concerns
@@ -55,10 +55,17 @@ export class SessionQueryEngine {
           created_at INTEGER NOT NULL DEFAULT 0,
           updated_at INTEGER NOT NULL DEFAULT 0
         );
-        CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
+        CREATE TABLE IF NOT EXISTS session_parent (
+          session_id TEXT PRIMARY KEY,
+          parent_id TEXT NOT NULL,
+          FOREIGN KEY (session_id) REFERENCES session_meta(session_id) ON DELETE CASCADE
+        );
+        DROP TABLE IF EXISTS entries_fts;
+        CREATE VIRTUAL TABLE entries_fts USING fts5(
           session_id UNINDEXED,
           seq UNINDEXED,
           kind UNINDEXED,
+          parent_id UNINDEXED,
           body,
           tokenize = 'unicode61'
         );
@@ -118,9 +125,9 @@ export class SessionQueryEngine {
   sync(sessionId: string, entries: ReadonlyArray<Entry>, meta: SessionMeta): void {
     const transaction = this.db.transaction(() => {
       this.db.prepare('DELETE FROM entries_fts WHERE session_id = ?').run(sessionId)
-      const insert = this.db.prepare('INSERT INTO entries_fts (session_id, seq, kind, body) VALUES (?, ?, ?, ?)')
+      const insert = this.db.prepare('INSERT INTO entries_fts (session_id, seq, kind, parent_id, body) VALUES (?, ?, ?, ?, ?)')
       for (const entry of entries) {
-        insert.run(sessionId, entry.seq, entry.kind, bodyFromEntry(entry))
+        insert.run(sessionId, entry.seq, entry.kind, entry.parentId, bodyFromEntry(entry))
       }
       this.upsertMeta(meta)
     })
@@ -212,6 +219,88 @@ export class SessionQueryEngine {
     return () => {
       this.db.exec(`DROP TABLE IF EXISTS ${live}`)
     }
+  }
+
+  /** Record a branch parent link (session_id → parent_id). */
+  setBranchParent(sessionId: string, parentId: string): void {
+    this.db
+      .prepare('INSERT INTO session_parent (session_id, parent_id) VALUES (?, ?) ON CONFLICT(session_id) DO UPDATE SET parent_id = excluded.parent_id')
+      .run(sessionId, parentId)
+  }
+
+  /** Parent session id, if any (branch lineage). */
+  getBranchParent(sessionId: string): string | undefined {
+    const row = this.db.prepare('SELECT parent_id FROM session_parent WHERE session_id = ?').get(sessionId) as { parent_id: string } | undefined
+    return row?.parent_id
+  }
+
+  /**
+   * Trace session lineage: ancestors (via branch parent links, nearest first)
+   * and descendants (recursive children, nearest first). Cycle → throws
+   * INVALID_LINEAGE (dsh semantics).
+   */
+  traceSession(sessionId: string): LineageResult {
+    const ancestors: string[] = []
+    const seen = new Set<string>([sessionId])
+    let current = this.getBranchParent(sessionId)
+    while (current) {
+      if (seen.has(current)) throw new Error(`SESSION_QUERY_INVALID_LINEAGE: cycle at ${current}`)
+      seen.add(current)
+      ancestors.push(current)
+      current = this.getBranchParent(current)
+    }
+    // descendants: BFS over child links
+    const descendants: string[] = []
+    const queue = [sessionId]
+    const visited = new Set<string>([sessionId])
+    while (queue.length > 0) {
+      const node = queue.shift()!
+      const children = this.db.prepare('SELECT session_id FROM session_parent WHERE parent_id = ?').all(node) as Array<{ session_id: string }>
+      for (const child of children) {
+        if (visited.has(child.session_id)) throw new Error(`SESSION_QUERY_INVALID_LINEAGE: cycle at ${child.session_id}`)
+        visited.add(child.session_id)
+        descendants.push(child.session_id)
+        queue.push(child.session_id)
+      }
+    }
+    return {
+      sessionId,
+      ...(ancestors.length > 0 ? { parentId: ancestors[0] } : {}),
+      ancestors,
+      descendants,
+    }
+  }
+
+  /**
+   * Trace a single event's lineage within its session: the event itself +
+   * ancestor chain (by parentId, nearest first). Cycle → INVALID_LINEAGE.
+   */
+  traceEvent(sessionId: string, seq: number): { event: EventHit; ancestors: EventHit[] } {
+    const rows = this.db
+      .prepare('SELECT rowid, session_id, seq, kind, body, parent_id FROM entries_fts WHERE session_id = ? ORDER BY seq')
+      .all(sessionId) as Array<{ rowid: number; session_id: string; seq: number; kind: string; body: string; parent_id: number }>
+    const bySeq = new Map(rows.map((row) => [row.seq, row]))
+    const target = bySeq.get(seq)
+    if (!target) throw new Error(`Event ${seq} not found in session ${sessionId}`)
+    const toHit = (row: (typeof rows)[number]): EventHit => ({
+      sessionId: row.session_id,
+      seq: row.seq,
+      kind: row.kind,
+      snippet: row.body.slice(0, 120),
+      score: 0,
+    })
+    const ancestors: EventHit[] = []
+    const seen = new Set<number>([seq])
+    let parentSeq = target.parent_id
+    while (parentSeq > 0) {
+      if (seen.has(parentSeq)) throw new Error(`SESSION_QUERY_INVALID_LINEAGE: event cycle at ${parentSeq}`)
+      seen.add(parentSeq)
+      const parent = bySeq.get(parentSeq)
+      if (!parent) break
+      ancestors.push(toHit(parent))
+      parentSeq = parent.parent_id
+    }
+    return { event: toHit(target), ancestors }
   }
 }
 
