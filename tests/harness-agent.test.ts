@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Agent, type AgentEventType, type PendingMessageQueueOptions } from '../src/harness/agent.js'
 import { AgentMessage } from '../src/harness/messages.js'
 import { usageFromParts } from '../src/llm/model.js'
+import { loadFixture } from '../src/llm/fixtures.js'
 
 function scriptedSteps(steps: Array<{ text?: string; toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>; stopReason?: string }>): Record<string, unknown> {
   // returns options for the test agent: a queue of assistant turns
@@ -22,7 +23,7 @@ function scriptedSteps(steps: Array<{ text?: string; toolCalls?: Array<{ id: str
 
 describe('Agent', () => {
   it('emits lifecycle events for a simple run (no tools)', async () => {
-    const agent = new Agent({ complete: scriptedSteps([{ text: 'hello world', stopReason: 'stop' }]).complete })
+    const agent = new Agent({ complete: scriptedSteps(loadFixture('simple-hello')).complete })
     const events: AgentEventType[] = []
     agent.on('event', (event) => events.push(event.type))
 
