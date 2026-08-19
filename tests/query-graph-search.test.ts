@@ -79,3 +79,46 @@ describe('searchGraph local', () => {
     expect(result.hits).toEqual([])
   })
 })
+
+describe('searchGraph global + naive', () => {
+  let dir: string
+  let engine: SessionQueryEngine
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'graph-global-'))
+    engine = seeded(
+      dir,
+      [
+        { name: 'Hermes', type: 'agent' },
+        { name: 'tony-agent', type: 'project' },
+        { name: 'FTS5', type: 'tech' },
+        { name: 'GraphRAG', type: 'tech' },
+      ],
+      [
+        { source: 'Hermes', target: 'tony-agent', kind: 'builds' },
+        { source: 'tony-agent', target: 'FTS5', kind: 'uses' },
+        { source: 'tony-agent', target: 'GraphRAG', kind: 'plans' },
+      ],
+      [
+        ['Hermes builds tony-agent', 1],
+        ['tony-agent uses FTS5 for search', 2],
+        ['GraphRAG adds knowledge graphs', 3],
+      ],
+    )
+  })
+  afterEach(async () => {
+    engine.close()
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('returns events ranked by relation kind match', () => {
+    const result = engine.searchGraph('builds', { mode: 'global' })
+    expect(result.hits.length).toBeGreaterThan(0)
+    expect(result.hits[0]!.seq).toBe(1) // 'builds' relation kind ranks first
+  })
+
+  it('naive mode falls back to FTS5 search', () => {
+    const result = engine.searchGraph('FTS5', { mode: 'naive' })
+    expect(result.hits.length).toBeGreaterThan(0)
+    expect(result.hits[0]!.seq).toBe(2)
+  })
+})
