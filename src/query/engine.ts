@@ -2,6 +2,7 @@ import { createRequire } from 'node:module'
 import type { Entry } from '../harness/session/types.js'
 import type { EventHit, LineageResult, SearchCursor, SearchOptions, SearchResult, SessionHit, SessionMeta } from './types.js'
 import type { GraphEntity, GraphRelation } from './graph-types.js'
+import type { GraphExtractor } from './extractor.js'
 
 export interface GraphSearchOptions {
   mode?: 'local' | 'global' | 'naive'
@@ -295,6 +296,24 @@ export class SessionQueryEngine {
       }
     }
     return { hits: Array.from(seen.values()).slice(0, limit) }
+  }
+
+  /**
+   * Extract + persist graph for a session in one step (explicit trigger —
+   * never runs on plain FTS5 sync). Fail-soft: extraction errors surface as
+   * warnings, not throws; no entities/relations persisted on failure.
+   */
+  async syncGraph(
+    sessionId: string,
+    entries: ReadonlyArray<Entry>,
+    meta: SessionMeta,
+    extractor: GraphExtractor,
+  ): Promise<{ warnings?: string[] }> {
+    const result = await extractor.extract(entries)
+    if (result.entities.length > 0) this.setEntities(sessionId, result.entities)
+    if (result.relations.length > 0) this.setRelations(sessionId, result.relations)
+    if (result.warnings?.length) return { warnings: result.warnings }
+    return {}
   }
 
   /** Read session metadata back (undefined when not indexed). */
