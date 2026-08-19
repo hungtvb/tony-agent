@@ -1,0 +1,8 @@
+{
+  "steps": [
+    {
+      "text": "hello world",
+      "stopReason": "stop"
+    }
+  ]
+}
