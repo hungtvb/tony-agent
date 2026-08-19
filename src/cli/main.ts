@@ -19,7 +19,8 @@ import {
 } from '../index.js'
 import { parseCliArgs } from './args.js'
 import { SessionQueryEngine } from '../query/engine.js'
-import { createQueryTools } from '../query/plugin.js'
+import { createQueryTools, createGraphTools } from '../query/plugin.js'
+import { GraphExtractor } from '../query/extractor.js'
 import type { Entry } from '../harness/session/types.js'
 import { resolveProfile, applyProfile, dumpProfile } from '../config/profiles.js'
 import { bold, cyan, dim, green, red, yellow, magenta, icon, table, SPINNER_FRAMES } from './theme.js'
@@ -151,6 +152,9 @@ async function createTools(dataDir: string, store: SessionStore): Promise<{ regi
       })
     }
     for (const tool of createQueryTools(engine, 'query_search')) {
+      if (!registry.has(tool.name)) registry.register(tool)
+    }
+    for (const tool of createGraphTools(engine, 'query_graph')) {
       if (!registry.has(tool.name)) registry.register(tool)
     }
   } catch (error) {
@@ -564,6 +568,44 @@ async function main(): Promise<void> {
           for (const hit of result.hits) {
             output.write('[' + hit.sessionId + ' x' + hit.matchCount + '] ' + (hit.bestEvent?.snippet ?? '') + '\n')
           }
+        }
+      }
+      engine.close()
+      return
+    }
+    case 'graph': {
+      const indexPath = join(options.dataDir, 'index.db')
+      const engine = new SessionQueryEngine({ indexPath })
+      const store = new SessionStore(options.dataDir)
+      await store.initialize()
+      const info = await store.list()
+      for (const sessionInfo of info) {
+        const entries = await store.readEntries(sessionInfo.id)
+        const sessionId = sessionInfo.id
+        engine.sync(sessionId, toQueryEntries(entries), {
+          sessionId,
+          name: sessionInfo.name ?? '',
+          createdAt: sessionInfo.createdAt ?? 0,
+          updatedAt: sessionInfo.updatedAt ?? 0,
+        })
+      }
+      const target = parsed.target ?? parsed.prompt ?? ''
+      if (!target) {
+        output.write((options.json ? JSON.stringify({ ok: false, error: 'graph: missing query' }) : 'graph: missing query (usage: tony-agent graph "<query>" [--mode local|global|naive] [--json])') + '\n')
+        process.exitCode = 1
+        engine.close()
+        return
+      }
+      const mode = parsed.mode ?? 'local'
+      const result = engine.searchGraph(target, { mode })
+      if (options.json) {
+        output.write(JSON.stringify({ ok: true, mode, hits: result.hits }) + '\n')
+      } else {
+        if (result.hits.length === 0) {
+          output.write('graph: no hits for "' + target + '" (mode ' + mode + ')\n')
+        }
+        for (const hit of result.hits) {
+          output.write('[' + hit.sessionId + '#' + hit.seq + '] (hop ' + hit.hop + (hit.entity ? ', ' + hit.entity : '') + ') ' + hit.snippet + '\n')
         }
       }
       engine.close()

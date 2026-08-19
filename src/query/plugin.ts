@@ -5,6 +5,98 @@ import type { Plugin } from '../plugin/registry.js'
 import type { TonyTool, ToolContext, ToolResult } from '../types.js'
 import type { SessionQueryEngine } from './engine.js'
 import type { EventHit, SearchResult } from './types.js'
+import type { GraphSearchOptions, GraphSearchResult } from './engine.js'
+
+/** Capability seam id for knowledge-graph retrieval (v0.6). */
+export const GRAPH_SERVICE_ID = 'query:graph'
+
+/** The graph service definition: request/result contract. */
+export const graphServiceDefinition: ServiceDefinition = {
+  id: GRAPH_SERVICE_ID,
+  schema: z.object({
+    query: z.string().min(1),
+    mode: z.enum(['local', 'global', 'naive']).optional(),
+    sessionId: z.string().optional(),
+    limit: z.number().int().positive().max(50).optional(),
+  }),
+}
+
+export interface GraphRequest {
+  query: string
+  mode?: 'local' | 'global' | 'naive'
+  sessionId?: string
+  limit?: number
+}
+
+/** Wrap an existing SessionQueryEngine into a graph ServiceProvider (swap backend zero-touch). */
+export function createGraphServiceProvider(engine: SessionQueryEngine): ServiceProvider<SessionQueryEngine> {
+  return {
+    definition: graphServiceDefinition,
+    name: 'local',
+    create() {
+      return engine
+    },
+  }
+}
+
+/** Model-facing consumer: turns the resolved graph service into a tool. */
+export function createGraphConsumer(): ServiceConsumer<SessionQueryEngine> {
+  return {
+    definition: graphServiceDefinition,
+    uses(service: SessionQueryEngine): TonyTool {
+      return {
+        name: GRAPH_SERVICE_ID,
+        description:
+          'Knowledge-graph retrieval over session history (entities/relations): local (entity-centric, related facts), global (theme-level), naive (FTS5 passthrough). Use it for multi-hop recall across sessions.',
+        risk: 'read' as const,
+        inputSchema: undefined as never,
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Entity name or theme' },
+            mode: { type: 'string', enum: ['local', 'global', 'naive'], description: 'Retrieval mode (default local)' },
+            sessionId: { type: 'string', description: 'Scope to one session id (default: all sessions)' },
+            limit: { type: 'number', description: 'Max hits (default 10, max 50)' },
+          },
+          required: ['query'],
+          additionalProperties: false,
+        },
+        async execute(input: unknown, _context: ToolContext): Promise<ToolResult> {
+          try {
+            const request = (input ?? {}) as GraphRequest
+            if (typeof request.query !== 'string' || request.query.trim() === '') {
+              return { content: 'query:graph requires a non-empty query', isError: true }
+            }
+            const options: GraphSearchOptions = { mode: request.mode, limit: request.limit, sessionId: request.sessionId }
+            const result: GraphSearchResult = service.searchGraph(request.query, options)
+            if (result.hits.length === 0) return { content: `No graph hits for "${request.query}"` }
+            const lines = result.hits.map(
+              (hit) => `[${hit.sessionId}#${hit.seq}] (hop ${hit.hop}${hit.entity ? `, ${hit.entity}` : ''}) ${hit.snippet}`,
+            )
+            return { content: `Found ${result.hits.length} graph hits:\n${lines.join('\n')}` }
+          } catch (error) {
+            return {
+              content: `query:graph failed: ${error instanceof Error ? error.message : String(error)}`,
+              isError: true,
+            }
+          }
+        },
+      }
+    },
+  }
+}
+
+/** Build the model-facing graph tools for an engine (direct wiring, no plugin ctx). */
+export function createGraphTools(engine: SessionQueryEngine, toolName = GRAPH_SERVICE_ID): TonyTool[] {
+  const produced = createGraphConsumer().uses(engine)
+  const tools = (Array.isArray(produced) ? produced : [produced]) as TonyTool[]
+  for (const tool of tools) {
+    if (toolName !== tool.name) {
+      tool.name = toolName
+    }
+  }
+  return tools
+}
 
 /** Capability seam id for session query. */
 export const QUERY_SERVICE_ID = 'query'

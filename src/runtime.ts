@@ -4,7 +4,8 @@ import { SessionStore } from './session/store.js'
 import { deriveMessages, assertModelVisibleIsLogged } from './session/log.js'
 import { ToolRegistry } from './tools/registry.js'
 import type { SessionQueryEngine } from './query/engine.js'
-import { createQueryTools } from './query/plugin.js'
+import { createQueryTools, createGraphTools } from './query/plugin.js'
+import type { GraphExtractor } from './query/extractor.js'
 import type { LLMCompleter, LLMMessage, PermissionRequest, PermissionResolution, SessionInfo, AgentEvent } from './types.js'
 import type { PageAdapter } from './host/adapter.js'
 
@@ -20,6 +21,8 @@ export interface TonyRuntimeOptions {
   limits?: TonyAgentOptions['limits']
   /** Session-query engine — when present, `query:search` is registered into the runtime registry. */
   queryEngine?: SessionQueryEngine
+  /** Graph extractor — when present, `query:graph` is registered into the runtime registry (v0.6). */
+  graphExtractor?: GraphExtractor
 }
 
 export interface TonySession {
@@ -43,6 +46,12 @@ export class TonyRuntime {
     // Session-query wiring: mount `query:search` into the shared registry.
     if (options.queryEngine) {
       for (const tool of createQueryTools(options.queryEngine, 'query_search')) {
+        if (!options.registry.has(tool.name)) options.registry.register(tool)
+      }
+    }
+    // Graph wiring: mount `query:graph` into the shared registry (v0.6).
+    if (options.queryEngine) {
+      for (const tool of createGraphTools(options.queryEngine, 'query_graph')) {
         if (!options.registry.has(tool.name)) options.registry.register(tool)
       }
     }
