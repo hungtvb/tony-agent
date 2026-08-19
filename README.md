@@ -1,19 +1,19 @@
 # Tony Agent
 
-Self-built, pure TypeScript agent harness. No agent harness dependency — the agent loop, LLM transport, tool system, permission policy, durable sessions, remote protocol, plugin system, and capability seams are all implemented in this repository. v0.3.0 adds the plugin/seam phase: session log as source of truth, fs/shell/subagent service seams, config profiles, and the hooks bridge.
+Self-built, pure TypeScript agent harness. No agent harness dependency — the agent loop, LLM transport, tool system, permission policy, durable sessions, remote protocol, plugin system, and capability seams are all implemented in this repository. **v0.4.0** adds tools presentation modes (native/code/both), cooperative cancellation (AbortSignal propagation), subagent cold resume, PatchLayer session-scoped overrides, ServiceRegistry quiescence teardown, and a vitest coverage gate with CI job.
 
 - **Unified LLM layer** — `Models`/`Api` abstraction with provider adapters (OpenAI-compatible, Anthropic, OpenRouter, Vercel gateway), model discovery, and a credential store persisting real keys (0600) so restarts survive.
 - **Agent loop** — bounded LLM → tool → result loop with streaming deltas, per-turn and per-run limits, loop detection, abort, and event stream.
 - **Stateful harness** — `Agent` class with hooks (`beforeToolCall`/`afterToolCall`/`transformContext`), steering/follow-up queues, sequential + parallel tool batches, loop guards.
 - **Durable sessions** — entry model with lanes; JSONL repo (atomic writes, branching, corruption-tolerant) and SQLite backend (WAL + integrity pragmas, FK-safe upserts); compaction + branch summarization; session log as the single source of truth (`deriveMessages`).
-- **Plugin system** — `PluginRegistry` (mount/unmount reversible effects, LIFO unwind), `EventBus` (broadcast fail-open + waterfall), `PatchLayer` (config patch by row id), `ServiceRegistry` (one active provider per definition, fail-closed resolve).
-- **Capability seams (v0.3)** — fs (`fs_read`/`fs_write`/`fs_list`, workspace-confined), shell (`shell_run` — allow-list, no-shell execFile, timeout), subagent (`delegate_subagent` — own session + toolFilter). Provider swap needs no consumer change.
+- **Plugin system** — `PluginRegistry` (mount/unmount reversible effects, LIFO unwind), `EventBus` (broadcast fail-open + waterfall), `PatchLayer` (config patch by row id + session-scoped overrides via `applyForSession`), `ServiceRegistry` (one active provider per definition, fail-closed resolve, quiescence teardown `dispose()` waits in-flight settle).
+- **Capability seams (v0.3)** — fs (`fs_read`/`fs_write`/`fs_list`, workspace-confined), shell (`shell_run` — allow-list, no-shell execFile, timeout, cooperative abort), subagent (`delegate_subagent` — own session + toolFilter + cold resume from persisted transcript). Provider swap needs no consumer change.
 - **Config profiles** — headless/web bundles as patch layers; CLI `profile` + `dump-config`.
-- **Tools** — typed registry with Zod input validation; 27 built-in browser tools across read/light/risky/blocked risk levels; coding toolset (write/read/edit/ls/grep/find) confined to a workspace root.
+- **Tools (v0.4)** — presentation modes `native`/`code`/`both` projected per surface; `run_code` code-mode transport; registry filter at call site; ToolContext carries the active presentation.
 - **Permissions** — per-tool/site policy: `allow` / `confirm` / `deny`, allow-once vs allow-session, fail-closed.
 - **Remote protocol** — framed CBOR (4-byte length + CBOR body) with `TonyServer`/`TonyClient` for remote sessions.
 - **Security** — code runtime in an empty vm context (no `require`/`process` escape), OAuth 2.0 PKCE (RFC 7636), hooks bridge with exit-code contract.
-- **Hosts** — Electron-free core; `PageAdapter` interface plus a working CDP adapter for Chromium/Electron targets.
+- **Testing (v0.4)** — vitest coverage gate (`npm run test:coverage`) with v8 provider + thresholds + dedicated CI job; smoke `npm run smoke`.
 
 See `ARCHITECTURE.md` for the full module map and core invariants.
 
