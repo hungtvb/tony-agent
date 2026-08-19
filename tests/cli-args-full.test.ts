@@ -45,6 +45,13 @@ describe('cli args — full flag coverage', () => {
     expect(parsed.target).toBe('session-abc')
   })
 
+  it('parses clone with source and name positional', () => {
+    const parsed = parseCliArgs(['clone', 'session-abc', 'my-clone'])
+    expect(parsed.command).toBe('clone')
+    expect(parsed.target).toBe('session-abc')
+    expect(parsed.secondary).toBe('my-clone')
+  })
+
   it('parses steer positional text', () => {
     const parsed = parseCliArgs(['steer', 'more detail please'])
     expect(parsed.command).toBe('steer')

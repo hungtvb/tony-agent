@@ -6,6 +6,7 @@ export type CliCommand =
 export interface ParsedCli {
   command: CliCommand
   target?: string
+  secondary?: string
   prompt?: string
   session?: string
   offline: boolean
@@ -63,6 +64,9 @@ export function parseCliArgs(argv: string[]): ParsedCli {
   }
   if (parsed.command === 'new' || parsed.command === 'fork' || parsed.command === 'switch' || parsed.command === 'get' || parsed.command === 'clone' || parsed.command === 'set' || parsed.command === 'cycle' || parsed.command === 'profile' || parsed.command === 'search' || parsed.command === 'graph') {
     parsed.target = positional[0]
+  }
+  if (parsed.command === 'clone') {
+    parsed.secondary = positional[1]
   }
   if (parsed.command === 'prompt' || parsed.command === 'steer' || parsed.command === 'set' || parsed.command === 'client' || parsed.command === 'search') {
     parsed.prompt = positional.join(' ')

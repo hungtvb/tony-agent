@@ -28,6 +28,8 @@ import { bold, cyan, dim, green, red, yellow, magenta, icon, table, SPINNER_FRAM
 interface CliOptions {
   command: string
   prompt?: string
+  target?: string
+  secondary?: string
   nonInteractive: boolean
   session?: string
   dataDir: string
@@ -269,8 +271,8 @@ async function cmdModels(options: CliOptions): Promise<void> {
 async function cmdClone(options: CliOptions, nameArg?: string): Promise<void> {
   const store = new SessionStore(options.dataDir)
   await store.initialize()
-  const source = options.session
-  const name = nameArg ?? 'clone'
+  const source = options.session ?? options.target
+  const name = nameArg ?? options.secondary ?? 'clone'
   if (!source) {
     output.write((options.json ? JSON.stringify({ ok: false, reason: 'usage: clone <source> <name>' }) : 'usage: clone <source> <name>') + '\n')
     process.exitCode = 1
@@ -330,6 +332,8 @@ async function main(): Promise<void> {
   const options: CliOptions = {
     command: parsed.command,
     prompt: parsed.prompt,
+    target: parsed.target,
+    secondary: parsed.secondary,
     nonInteractive: parsed.nonInteractive,
     session: parsed.session,
     dataDir: parsed.dataDir ?? (readEnv('TONY_AGENT_DATA_DIR') || join(homedir(), '.tony-agent')),
@@ -406,7 +410,7 @@ async function main(): Promise<void> {
       return
     }
     case 'clone': {
-      await cmdClone(options, parsed.target)
+      await cmdClone(options)
       return
     }
     case 'set': {
