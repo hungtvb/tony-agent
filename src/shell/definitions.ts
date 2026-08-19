@@ -26,8 +26,8 @@ export interface ShellService {
   readonly kind: 'local' | 'remote'
   /** Working-directory root; commands run here (or under a confined subdir). */
   readonly root: string
-  /** Run one command with a timeout; rejects on timeout or non-zero exit. */
-  run(command: string, options?: { cwd?: string; timeoutMs?: number }): Promise<ShellResult>
+  /** Run one command with a timeout; rejects on timeout, non-zero exit, or abort. */
+  run(command: string, options?: { cwd?: string; timeoutMs?: number; signal?: AbortSignal }): Promise<ShellResult>
 }
 
 export type ShellServiceProvider = ServiceProvider<ShellService>

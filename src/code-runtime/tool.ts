@@ -15,11 +15,12 @@ export function createRunCodeTool(runtime: CodeRuntime) {
     risk: 'risky' as const,
     inputSchema: undefined as never,
     parameters: codeRunSchema(),
-    async execute(input: { code: string; language?: 'typescript' | 'javascript'; timeoutMs?: number }, _context: { signal?: AbortSignal; sessionId: string }): Promise<ToolResult> {
+    async execute(input: { code: string; language?: 'typescript' | 'javascript'; timeoutMs?: number }, context: { signal?: AbortSignal; sessionId: string }): Promise<ToolResult> {
       const result = await runtime.run({
         language: input.language ?? 'typescript',
         code: input.code,
         timeoutMs: input.timeoutMs,
+        signal: context.signal,
       })
       const head = result.stdout.split('\n').slice(0, 200).join('\n')
       const tail = result.stderr.split('\n').slice(0, 100).join('\n')

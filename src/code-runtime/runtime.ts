@@ -26,6 +26,8 @@ export interface CodeRunRequest {
   cwd?: string
   /** Milliseconds before the run is killed. */
   timeoutMs?: number
+  /** Cooperative cancellation — aborting the signal rejects the run promptly. */
+  signal?: AbortSignal
   /** Sandbox policy applied to this run (default: deny require + dangerous APIs). */
   policy?: SandboxPolicy
 }

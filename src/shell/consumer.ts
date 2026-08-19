@@ -29,12 +29,13 @@ export function createShellConsumer(): ServiceConsumer<ShellService> {
           { command: stringProp('Command line, e.g. "ls -la"'), cwd: stringProp('Optional subdirectory relative to workspace root') },
           ['command'],
         ),
-        async execute(input: { command: string; cwd?: string }, _context: ToolContext): Promise<{ content: string; isError?: boolean }> {
+        async execute(input: { command: string; cwd?: string }, context: ToolContext): Promise<{ content: string; isError?: boolean }> {
           try {
-            const result = await service.run(input.command, { cwd: input.cwd })
+            const result = await service.run(input.command, { cwd: input.cwd, signal: context.signal })
             return { content: result.stdout || '(no output)' }
           } catch (error) {
-            return { content: `Error: ${String(error)}`, isError: true }
+            const aborted = context.signal?.aborted ?? false
+            return { content: aborted ? 'Shell command aborted.' : `Error: ${String(error)}`, isError: !aborted }
           }
         },
       }

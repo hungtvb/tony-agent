@@ -42,6 +42,7 @@ export function createLocalShellProvider(options: { root: string; allow?: string
               cwd,
               timeout: runOptions.timeoutMs ?? 15_000,
               maxBuffer: 1024 * 1024,
+              signal: runOptions.signal,
             })
             const result: ShellResult = { exitCode: 0, stdout: stdout.trim(), stderr: stderr.trim(), durationMs: Date.now() - started }
             return result
