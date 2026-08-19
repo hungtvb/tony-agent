@@ -39,9 +39,11 @@ export function parseCliArgs(argv: string[]): ParsedCli {
     const arg = argv[index]!
     const value = argv[index + 1]
     if (POSITIONAL_COMMANDS.has(arg as CliCommand) && !arg.startsWith('-')) {
-      parsed.command = arg as CliCommand
+      if (parsed.command === 'run') parsed.command = arg as CliCommand
+      else positional.push(arg)
     } else if (arg === 'run' || arg === 'server' || arg === 'client' || arg === 'models' || arg === 'abort' || arg === 'compact' || arg === 'export' || arg === 'doctor' || arg === 'list' || arg === 'steer' || arg === 'profile' || arg === 'dump-config' || arg === 'search' || arg === 'graph' || arg === 'help') {
-      parsed.command = arg as CliCommand
+      if (parsed.command === 'run') parsed.command = arg as CliCommand
+      else positional.push(arg)
     } else if (arg === '-p' || arg === '--prompt') { if (value) { parsed.prompt = value; index += 1 } }
     else if (arg === '-s' || arg === '--session') { if (value) { parsed.session = value; index += 1 } }
     else if (arg === '--offline') parsed.offline = true
