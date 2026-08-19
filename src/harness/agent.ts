@@ -187,7 +187,9 @@ export class Agent {
       }
 
       const visibleTools = this.scope ? this.scope.filter(Array.from(this.tools)) : Array.from(this.tools)
-      const toolDefs: ToolDefinition[] = visibleTools.map(([name, tool]) => ({
+      // native presentation: code-only tools are hidden from the model
+      const nativeTools = visibleTools.filter(([, tool]) => (tool.presentation ?? 'both') !== 'code')
+      const toolDefs: ToolDefinition[] = nativeTools.map(([name, tool]) => ({
         type: 'function',
         function: { name, description: tool.description, parameters: tool.parameters },
       }))
@@ -312,7 +314,7 @@ export class Agent {
     let result: { content: string; isError?: boolean }
     try {
       const args = typeof call.arguments === 'string' ? (JSON.parse(call.arguments) as Record<string, unknown>) : call.arguments
-      const toolResult = await tool.execute(args, { signal: this.abortSignal(), sessionId: this.sessionId, metadata: {} })
+      const toolResult = await tool.execute(args, { signal: this.abortSignal(), sessionId: this.sessionId, presentation: 'native', metadata: {} })
       result = { content: toolResult.content, isError: toolResult.isError }
     } catch (error) {
       result = { content: `Tool error: ${String(error)}`, isError: true }

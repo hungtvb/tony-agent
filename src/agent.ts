@@ -149,7 +149,7 @@ export class TonyAgent {
 
         const response = await this.llm.complete({
           messages,
-          tools: this.registry.definitions(),
+          tools: this.registry.definitions({ presentation: 'native' }),
           signal: controller.signal,
         }, {
           onTextDelta: (delta) => {
@@ -221,6 +221,7 @@ export class TonyAgent {
             const context: ToolContext = {
               signal: controller.signal,
               sessionId: this.sessionId,
+              presentation: 'native',
               ...(site ? { site } : {}),
               adapter: this.adapter,
               metadata: {},
