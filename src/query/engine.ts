@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module'
 import type { Entry } from '../harness/session/types.js'
 import type { EventHit, LineageResult, SearchCursor, SearchOptions, SearchResult, SessionHit, SessionMeta } from './types.js'
+import type { GraphEntity, GraphRelation } from './graph-types.js'
 
 const SCHEMA_VERSION = 4
 
@@ -127,6 +128,58 @@ export class SessionQueryEngine {
   countEntries(sessionId: string): number {
     const row = this.db.prepare('SELECT COUNT(*) AS n FROM entries_fts WHERE session_id = ?').get(sessionId) as { n: number }
     return row.n
+  }
+
+  /**
+   * Replace a session's entities (incremental per session — delete + insert).
+   * Exact-name merging: re-setting the same name updates type/description.
+   */
+  setEntities(sessionId: string, entities: ReadonlyArray<GraphEntity>): void {
+    const transaction = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM entities WHERE session_id = ?').run(sessionId)
+      const insert = this.db.prepare(
+        'INSERT INTO entities (session_id, name, type, description) VALUES (?, ?, ?, ?) ' +
+          'ON CONFLICT(session_id, name) DO UPDATE SET type = excluded.type, description = excluded.description',
+      )
+      for (const entity of entities) {
+        insert.run(sessionId, entity.name, entity.type, entity.description ?? '')
+      }
+    })
+    transaction()
+  }
+
+  /** Read a session's entities, sorted by name. */
+  getEntities(sessionId: string): GraphEntity[] {
+    const rows = this.db
+      .prepare('SELECT name, type, description FROM entities WHERE session_id = ? ORDER BY name')
+      .all(sessionId) as Array<{ name: string; type: string; description: string }>
+    return rows.map((row) => ({ name: row.name, type: row.type, ...(row.description ? { description: row.description } : {}) }))
+  }
+
+  /**
+   * Replace a session's relations (incremental per session — delete + insert).
+   * Upsert on (session_id, source, target, kind) updates description.
+   */
+  setRelations(sessionId: string, relations: ReadonlyArray<GraphRelation>): void {
+    const transaction = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM relations WHERE session_id = ?').run(sessionId)
+      const insert = this.db.prepare(
+        'INSERT INTO relations (session_id, source, target, kind, description) VALUES (?, ?, ?, ?, ?) ' +
+          'ON CONFLICT(session_id, source, target, kind) DO UPDATE SET description = excluded.description',
+      )
+      for (const relation of relations) {
+        insert.run(sessionId, relation.source, relation.target, relation.kind, relation.description ?? '')
+      }
+    })
+    transaction()
+  }
+
+  /** Read a session's relations, sorted by source/target/kind. */
+  getRelations(sessionId: string): GraphRelation[] {
+    const rows = this.db
+      .prepare('SELECT source, target, kind, description FROM relations WHERE session_id = ? ORDER BY source, target, kind')
+      .all(sessionId) as Array<{ source: string; target: string; kind: string; description: string }>
+    return rows.map((row) => ({ source: row.source, target: row.target, kind: row.kind, ...(row.description ? { description: row.description } : {}) }))
   }
 
   /** Read session metadata back (undefined when not indexed). */
