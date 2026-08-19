@@ -19,4 +19,10 @@ describe('graph CLI command', () => {
     expect(parsed.command).toBe('graph')
     expect(parsed.mode).toBe('global')
   })
+  it('does not let query tokens override the command (search "graph")', () => {
+    const parsed = parseCliArgs(['search', 'graph'])
+    expect(parsed.command).toBe('search')
+    expect(parsed.prompt).toBe('graph')
+    expect(parsed.target).toBe('graph')
+  })
 })
