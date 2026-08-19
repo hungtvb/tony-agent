@@ -14,7 +14,7 @@ Self-built, pure TypeScript agent harness. No agent harness dependency — the a
 - **Remote protocol** — framed CBOR (4-byte length + CBOR body) with `TonyServer`/`TonyClient` for remote sessions.
 - **Security** — code runtime in an empty vm context (no `require`/`process` escape), OAuth 2.0 PKCE (RFC 7636), hooks bridge with exit-code contract.
 - **Testing (v0.4)** — vitest coverage gate (`npm run test:coverage`) with v8 provider + thresholds + dedicated CI job; smoke `npm run smoke`.
-- **Session Query (v0.5)** — FTS5 derived index (`src/query/`): `SessionQueryEngine` with `sync`/`searchEvents`/`searchSessions`/`traceSession`/`traceEvent`, literal-phrase semantics (FTS keywords treated as data), snippet highlighting, keyset cursor paging, lineage cycle-safety, and a live TEMP shadow surface fold. CLI: `tony-agent search "<query>" [--session <id>] [--json]`.
+- **Session Query (v0.5)** — FTS5 derived index (`src/query/`): `SessionQueryEngine` with `sync`/`searchEvents`/`searchSessions`/`traceSession`/`traceEvent`, literal-phrase semantics (FTS keywords treated as data), snippet highlighting, keyset cursor paging, lineage cycle-safety, and a live TEMP shadow surface fold. CLI: `tony-agent search "<query>" [--session <id>] [--json]`. **v0.5.1** wires the `query:search` tool into both agent loops (runtime + CLI), so the model can recall past sessions mid-conversation.
 
 See `ARCHITECTURE.md` for the full module map and core invariants.
 
