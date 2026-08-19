@@ -3,6 +3,25 @@ import type { Entry } from '../harness/session/types.js'
 import type { EventHit, LineageResult, SearchCursor, SearchOptions, SearchResult, SessionHit, SessionMeta } from './types.js'
 import type { GraphEntity, GraphRelation } from './graph-types.js'
 
+export interface GraphSearchOptions {
+  mode?: 'local' | 'global' | 'naive'
+  sessionId?: string
+  limit?: number
+  maxHops?: number
+}
+
+export interface GraphHit {
+  sessionId: string
+  seq: number
+  snippet: string
+  entity?: string
+  hop: number
+}
+
+export interface GraphSearchResult {
+  hits: GraphHit[]
+}
+
 const SCHEMA_VERSION = 4
 
 const require = createRequire(import.meta.url)
@@ -180,6 +199,102 @@ export class SessionQueryEngine {
       .prepare('SELECT source, target, kind, description FROM relations WHERE session_id = ? ORDER BY source, target, kind')
       .all(sessionId) as Array<{ source: string; target: string; kind: string; description: string }>
     return rows.map((row) => ({ source: row.source, target: row.target, kind: row.kind, ...(row.description ? { description: row.description } : {}) }))
+  }
+
+  /**
+   * Knowledge-graph retrieval (v0.6). Modes:
+   * - `local`  — seed entities by name/lexical match, expand via relations
+   *              (BFS up to maxHops), return ranked entry chunks.
+   * - `global` — theme-level: relation-kind + entity-name aggregates matching
+   *              the query, then chunks mentioning those themes.
+   * - `naive`  — FTS5 passthrough (existing searchEvents).
+   */
+  searchGraph(query: string, options: GraphSearchOptions = {}): GraphSearchResult {
+    const mode = options.mode ?? 'local'
+    if (mode === 'naive') {
+      const events = this.searchEvents(query, { limit: options.limit ?? 10, sessionId: options.sessionId })
+      return { hits: events.hits.map((h) => ({ sessionId: h.sessionId, seq: h.seq, snippet: h.snippet, hop: 0 })) }
+    }
+    if (mode === 'global') return this.searchGraphGlobal(query, options)
+    return this.searchGraphLocal(query, options)
+  }
+
+  private searchGraphLocal(query: string, options: GraphSearchOptions): GraphSearchResult {
+    const limit = options.limit ?? 10
+    const maxHops = options.maxHops ?? 2
+    const sessionFilter = options.sessionId ? 'AND session_id = @sid' : ''
+    // 1. seed entities: exact name OR lexical LIKE
+    const seeds = this.db
+      .prepare(`SELECT session_id, name, type, description FROM entities WHERE (name = @q OR name LIKE @like) ${sessionFilter}`)
+      .all({ q: query, like: `%${query}%`, sid: options.sessionId ?? '' }) as Array<{ session_id: string; name: string; type: string; description: string }>
+    if (seeds.length === 0) return { hits: [] }
+    // 2. BFS expansion: collect related entities within maxHops
+    const expanded = new Map<string, number>() // entity name -> hop
+    for (const s of seeds) expanded.set(s.name, 0)
+    const queue = seeds.map((s) => s.name)
+    let hop = 0
+    while (queue.length > 0 && hop < maxHops) {
+      hop++
+      const batch = queue.splice(0, 50)
+      const placeholders = batch.map(() => '?').join(',')
+      const params = options.sessionId ? [...batch, ...batch, options.sessionId] : [...batch, ...batch]
+      const relRows = this.db
+        .prepare(`SELECT source, target FROM relations WHERE source IN (${placeholders}) OR target IN (${placeholders}) ${sessionFilter}`)
+        .all(...params) as Array<{ source: string; target: string }>
+      for (const r of relRows) {
+        const other = expanded.has(r.source) ? r.target : r.source
+        if (!expanded.has(other)) {
+          expanded.set(other, hop)
+          queue.push(other)
+        }
+      }
+    }
+    // 3. entry bodies mentioning expanded entities
+    const names = Array.from(expanded.keys())
+    const hits: GraphHit[] = []
+    const seen = new Map<string, GraphHit>()
+    for (const name of names) {
+      const rows = this.db
+        .prepare(`SELECT session_id, seq, body FROM entries_fts WHERE body LIKE @name ${sessionFilter} ORDER BY seq LIMIT @lim`)
+        .all({ name: `%${name}%`, sid: options.sessionId ?? '', lim: 5 }) as Array<{ session_id: string; seq: number; body: string }>
+      for (const row of rows) {
+        const graphHit: GraphHit = {
+          sessionId: row.session_id,
+          seq: row.seq,
+          snippet: makeSnippet(row.body, name),
+          entity: name,
+          hop: expanded.get(name)!,
+        }
+        const key = `${row.session_id}:${row.seq}`
+        const existing = seen.get(key)
+        if (!existing || graphHit.hop < existing.hop) seen.set(key, graphHit)
+      }
+    }
+    return { hits: Array.from(seen.values()).sort((a, b) => a.hop - b.hop || a.seq - b.seq).slice(0, limit) }
+  }
+
+  private searchGraphGlobal(query: string, options: GraphSearchOptions): GraphSearchResult {
+    const limit = options.limit ?? 10
+    const sessionFilter = options.sessionId ? 'AND session_id = @sid' : ''
+    // theme terms: relation kinds + entity names matching the query
+    const kinds = this.db
+      .prepare(`SELECT DISTINCT kind, COUNT(*) AS n FROM relations WHERE kind LIKE @q ${sessionFilter} GROUP BY kind ORDER BY n DESC LIMIT @lim`)
+      .all({ q: `%${query}%`, sid: options.sessionId ?? '', lim: 10 }) as Array<{ kind: string; n: number }>
+    const names = this.db
+      .prepare(`SELECT DISTINCT name FROM entities WHERE name LIKE @q ${sessionFilter} LIMIT @lim`)
+      .all({ q: `%${query}%`, sid: options.sessionId ?? '', lim: 10 }) as Array<{ name: string }>
+    const terms = [...kinds.map((k) => k.kind), ...names.map((n) => n.name)].slice(0, 20)
+    const seen = new Map<string, GraphHit>()
+    for (const term of terms) {
+      const rows = this.db
+        .prepare(`SELECT session_id, seq, body FROM entries_fts WHERE body LIKE @term ${sessionFilter} ORDER BY seq LIMIT @lim`)
+        .all({ term: `%${term}%`, sid: options.sessionId ?? '', lim: 5 }) as Array<{ session_id: string; seq: number; body: string }>
+      for (const row of rows) {
+        const key = `${row.session_id}:${row.seq}`
+        if (!seen.has(key)) seen.set(key, { sessionId: row.session_id, seq: row.seq, snippet: makeSnippet(row.body, term), entity: term, hop: 0 })
+      }
+    }
+    return { hits: Array.from(seen.values()).slice(0, limit) }
   }
 
   /** Read session metadata back (undefined when not indexed). */
