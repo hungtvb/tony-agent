@@ -55,6 +55,8 @@ export function validatePatchRows(rows: PatchRow[]): PatchSchemaError[] {
 export class PatchLayer {
   private readonly rows: PatchRow[]
   private readonly strict: boolean
+  /** Per-session overrides: sessionId → (rowId → override row). Never mutates rows. */
+  private readonly sessionOverrides = new Map<string, Map<string, PatchRow>>()
 
   constructor(rows: PatchRow[], options: PatchLayerOptions = {}) {
     this.strict = options.strict ?? true
@@ -62,7 +64,7 @@ export class PatchLayer {
   }
 
   /** Apply this layer over a base row list/map; returns the merged row map. */
-  apply(base: PatchRow[] | Map<string, PatchRow>): Map<string, PatchRow> {
+  apply(base: PatchRow[] | Map<string, PatchRow>, sessionId?: string): Map<string, PatchRow> {
     const merged = new Map<string, PatchRow>()
     if (base instanceof Map) {
       for (const [id, row] of Array.from(base.entries())) merged.set(id, row)
@@ -83,12 +85,56 @@ export class PatchLayer {
       }
       merged.set(row.id, next)
     }
+    if (sessionId) {
+      const overrides = this.sessionOverrides.get(sessionId)
+      if (overrides) {
+        for (const row of Array.from(overrides.values())) {
+          if (row.disabled) {
+            merged.delete(row.id)
+            continue
+          }
+          const existing = merged.get(row.id)
+          merged.set(row.id, {
+            id: row.id,
+            plugin: row.plugin,
+            config: row.config ?? existing?.config,
+            disabled: false,
+          })
+        }
+      }
+    }
     return merged
+  }
+
+  /** Override a row for ONE session only. Later overlays win; does not touch rows.
+   *  A disabled marker hides the row for that session (re-enable by re-applying
+   *  a config row); clearSession drops all overrides for the session. */
+  applyForSession(sessionId: string, row: PatchRow): void {
+    if (this.strict) {
+      const issues = validatePatchRow(row)
+      if (issues.length > 0) throw new Error(`Invalid patch row for session ${sessionId}: ${issues.join('; ')}`)
+    }
+    let overrides = this.sessionOverrides.get(sessionId)
+    if (!overrides) {
+      overrides = new Map()
+      this.sessionOverrides.set(sessionId, overrides)
+    }
+    overrides.set(row.id, row)
+  }
+
+  /** Drop all per-session overrides for a session (e.g. session deleted). */
+  clearSession(sessionId: string): void {
+    this.sessionOverrides.delete(sessionId)
   }
 
   /** Render the applied rows in determininstic order (by id). */
   dump(rows: Map<string, PatchRow>): PatchRow[] {
     return Array.from(rows.values()).sort((a, b) => a.id.localeCompare(b.id))
+  }
+
+  /** Number of sessions with active overrides. */
+  get sessionOverrideCount(): number {
+    return this.sessionOverrides.size
   }
 }
 
