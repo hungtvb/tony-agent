@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionQueryEngine } from '../src/query/engine.js'
+import { createEntry, type Entry } from '../src/harness/session/types.js'
+import type { SessionMeta } from '../src/query/types.js'
 
 const SCHEMA_VERSION = 2
 
@@ -68,6 +70,50 @@ describe('SessionQueryEngine skeleton', () => {
     const tables = engine.listTables()
     expect(tables).not.toContain('entries')
     expect(tables.some((t) => t.includes('session'))).toBe(true)
+    engine.close()
+  })
+
+  it('sync indexes entries into FTS + meta', async () => {
+    const dir = await tempDir()
+    const engine = new SessionQueryEngine({ indexPath: join(dir, 'index.db') })
+    const meta: SessionMeta = { sessionId: 's1', name: 'Research', createdAt: 1000, updatedAt: 2000 }
+    const entries: Entry[] = [
+      createEntry({ kind: 'message', message: { role: 'user', content: 'Find the async cancellation bug' }, seq: 1, parentId: 0 }),
+      createEntry({ kind: 'message', message: { role: 'assistant', content: 'The bug is in worker-thread abort handling.' }, seq: 2, parentId: 1 }),
+    ]
+    engine.sync('s1', entries, meta)
+    expect(engine.countEntries('s1')).toBe(2)
+    expect(engine.getMeta('s1')?.name).toBe('Research')
+    engine.close()
+  })
+
+  it('sync appends update rows without duplicating', async () => {
+    const dir = await tempDir()
+    const engine = new SessionQueryEngine({ indexPath: join(dir, 'index.db') })
+    const meta: SessionMeta = { sessionId: 's1', name: 'S', createdAt: 1, updatedAt: 2 }
+    engine.sync('s1', [
+      createEntry({ kind: 'message', message: { role: 'user', content: 'first' }, seq: 1, parentId: 0 }),
+    ], meta)
+    // append a second turn, same session
+    engine.sync('s1', [
+      createEntry({ kind: 'message', message: { role: 'user', content: 'first' }, seq: 1, parentId: 0 }),
+      createEntry({ kind: 'message', message: { role: 'assistant', content: 'second' }, seq: 2, parentId: 1 }),
+    ], meta)
+    expect(engine.countEntries('s1')).toBe(2)
+    engine.close()
+  })
+
+  it('deleteSession removes entries + meta', async () => {
+    const dir = await tempDir()
+    const engine = new SessionQueryEngine({ indexPath: join(dir, 'index.db') })
+    const meta: SessionMeta = { sessionId: 's1', name: 'S', createdAt: 1, updatedAt: 2 }
+    engine.sync('s1', [
+      createEntry({ kind: 'message', message: { role: 'user', content: 'hello world' }, seq: 1, parentId: 0 }),
+    ], meta)
+    expect(engine.countEntries('s1')).toBe(1)
+    engine.deleteSession('s1')
+    expect(engine.countEntries('s1')).toBe(0)
+    expect(engine.getMeta('s1')).toBeUndefined()
     engine.close()
   })
 })

@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module'
+import type { Entry } from '../harness/session/types.js'
 import type { SessionMeta } from './types.js'
 
 const SCHEMA_VERSION = 2
@@ -92,5 +93,62 @@ export class SessionQueryEngine {
   deleteSession(sessionId: string): void {
     this.db.prepare('DELETE FROM entries_fts WHERE session_id = ?').run(sessionId)
     this.db.prepare('DELETE FROM session_meta WHERE session_id = ?').run(sessionId)
+  }
+
+  /** Number of indexed entries for a session (diagnostics/tests). */
+  countEntries(sessionId: string): number {
+    const row = this.db.prepare('SELECT COUNT(*) AS n FROM entries_fts WHERE session_id = ?').get(sessionId) as { n: number }
+    return row.n
+  }
+
+  /** Read session metadata back (undefined when not indexed). */
+  getMeta(sessionId: string): SessionMeta | undefined {
+    const row = this.db.prepare('SELECT session_id, name, created_at, updated_at FROM session_meta WHERE session_id = ?').get(sessionId) as
+      | { session_id: string; name: string; created_at: number; updated_at: number }
+      | undefined
+    if (!row) return undefined
+    return { sessionId: row.session_id, name: row.name, createdAt: row.created_at, updatedAt: row.updated_at }
+  }
+
+  /**
+   * Sync a session's entries into the derived index. Atomic per session:
+   * deletes existing rows for the session then re-inserts (no duplicates on
+   * append). Extracts the searchable body per entry kind.
+   */
+  sync(sessionId: string, entries: ReadonlyArray<Entry>, meta: SessionMeta): void {
+    const transaction = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM entries_fts WHERE session_id = ?').run(sessionId)
+      const insert = this.db.prepare('INSERT INTO entries_fts (session_id, seq, kind, body) VALUES (?, ?, ?, ?)')
+      for (const entry of entries) {
+        insert.run(sessionId, entry.seq, entry.kind, bodyFromEntry(entry))
+      }
+      this.upsertMeta(meta)
+    })
+    transaction()
+  }
+}
+
+/** Extract the searchable text body from a session entry by kind. */
+export function bodyFromEntry(entry: Entry): string {
+  switch (entry.kind) {
+    case 'message': {
+      const content = entry.message.content
+      if (typeof content === 'string') return content
+      return content
+        .map((part) => (part.type === 'text' ? part.text : `tool call: ${part.name} ${typeof part.arguments === 'string' ? part.arguments : JSON.stringify(part.arguments)}`))
+        .join(' ')
+    }
+    case 'model_change':
+      return `model change: ${entry.model}`
+    case 'thinking_level_change':
+      return `thinking level: ${entry.level}`
+    case 'active_tools_change':
+      return `active tools: ${entry.tools.join(', ')}`
+    case 'compaction':
+      return `compaction (${entry.reason}): ${entry.summary}`
+    case 'branch_summary':
+      return `branch summary: ${entry.summary}`
+    case 'custom':
+      return typeof entry.payload === 'string' ? entry.payload : JSON.stringify(entry.payload)
   }
 }
