@@ -1,7 +1,7 @@
 export type CliCommand =
   | 'run' | 'prompt' | 'new' | 'steer' | 'abort' | 'fork' | 'compact' | 'export'
   | 'switch' | 'list' | 'get' | 'clone' | 'set' | 'cycle' | 'server' | 'client' | 'models' | 'doctor'
-  | 'profile' | 'dump-config' | 'search' | 'help'
+  | 'profile' | 'dump-config' | 'search' | 'graph' | 'help'
 
 export interface ParsedCli {
   command: CliCommand
@@ -18,10 +18,11 @@ export interface ParsedCli {
   maxTurns?: number
   stream: boolean
   profile?: string
+  mode?: 'local' | 'global' | 'naive'
   dumpConfig: boolean
 }
 
-const POSITIONAL_COMMANDS = new Set<CliCommand>(['new', 'fork', 'switch', 'get', 'clone', 'set', 'cycle', 'prompt', 'search'])
+const POSITIONAL_COMMANDS = new Set<CliCommand>(['new', 'fork', 'switch', 'get', 'clone', 'set', 'cycle', 'prompt', 'search', 'graph'])
 
 /** Parse pi-parity CLI argv into a structured command. */
 export function parseCliArgs(argv: string[]): ParsedCli {
@@ -39,7 +40,7 @@ export function parseCliArgs(argv: string[]): ParsedCli {
     const value = argv[index + 1]
     if (POSITIONAL_COMMANDS.has(arg as CliCommand) && !arg.startsWith('-')) {
       parsed.command = arg as CliCommand
-    } else if (arg === 'run' || arg === 'server' || arg === 'client' || arg === 'models' || arg === 'abort' || arg === 'compact' || arg === 'export' || arg === 'doctor' || arg === 'list' || arg === 'steer' || arg === 'profile' || arg === 'dump-config' || arg === 'search' || arg === 'help') {
+    } else if (arg === 'run' || arg === 'server' || arg === 'client' || arg === 'models' || arg === 'abort' || arg === 'compact' || arg === 'export' || arg === 'doctor' || arg === 'list' || arg === 'steer' || arg === 'profile' || arg === 'dump-config' || arg === 'search' || arg === 'graph' || arg === 'help') {
       parsed.command = arg as CliCommand
     } else if (arg === '-p' || arg === '--prompt') { if (value) { parsed.prompt = value; index += 1 } }
     else if (arg === '-s' || arg === '--session') { if (value) { parsed.session = value; index += 1 } }
@@ -53,11 +54,12 @@ export function parseCliArgs(argv: string[]): ParsedCli {
     else if (arg === '--max-turns' && value) { parsed.maxTurns = Number.parseInt(value, 10); index += 1 }
     else if (arg === '--no-stream') parsed.stream = false
     else if (arg === '--profile' && value) { parsed.profile = value; index += 1 }
+    else if (arg === '--mode' && value) { parsed.mode = value as 'local' | 'global' | 'naive'; index += 1 }
     else if (arg === '--dump-config') parsed.dumpConfig = true
     else if (arg === '--help' || arg === '-h') parsed.command = 'help'
     else if (!arg.startsWith('-')) positional.push(arg)
   }
-  if (parsed.command === 'new' || parsed.command === 'fork' || parsed.command === 'switch' || parsed.command === 'get' || parsed.command === 'clone' || parsed.command === 'set' || parsed.command === 'cycle' || parsed.command === 'profile' || parsed.command === 'search') {
+  if (parsed.command === 'new' || parsed.command === 'fork' || parsed.command === 'switch' || parsed.command === 'get' || parsed.command === 'clone' || parsed.command === 'set' || parsed.command === 'cycle' || parsed.command === 'profile' || parsed.command === 'search' || parsed.command === 'graph') {
     parsed.target = positional[0]
   }
   if (parsed.command === 'prompt' || parsed.command === 'steer' || parsed.command === 'set' || parsed.command === 'client' || parsed.command === 'search') {
