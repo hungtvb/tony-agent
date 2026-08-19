@@ -22,6 +22,19 @@ interface ProviderEntry {
 export class ServiceRegistry {
   private readonly providers = new Map<string, ProviderEntry[]>()
   private readonly consumers = new Map<string, ServiceConsumer[]>()
+  private readonly inFlight = new Set<Promise<unknown>>()
+  private disposed = false
+
+  /** Track an in-flight service call; settle on completion/failure. */
+  private track<T>(promise: Promise<T>): Promise<T> {
+    this.inFlight.add(promise as Promise<unknown>)
+    promise
+      .catch(() => {})
+      .finally(() => {
+        this.inFlight.delete(promise as Promise<unknown>)
+      })
+    return promise
+  }
 
   register<T>(provider: ServiceProvider<T>): () => void {
     if (!provider?.definition?.id || !provider.name) throw new Error('Provider needs definition.id and name')
@@ -78,6 +91,15 @@ export class ServiceRegistry {
     return Array.isArray(tools) ? tools : [tools]
   }
 
+  /**
+   * Run a service call under quiescence tracking: `dispose()` (and
+   * `dispose({ maxWaitMs })`) will not resolve until this settles.
+   */
+  withActive<T>(promise: Promise<T>): Promise<T> {
+    if (this.disposed) return Promise.reject(new Error('ServiceRegistry disposed'))
+    return this.track(promise)
+  }
+
   /** Tools every consumer for this definition produces (for registration). */
   consumerTools(id: string, ctx?: PluginContext): TonyTool[] {
     const consumers = this.consumers.get(id) ?? []
@@ -95,5 +117,28 @@ export class ServiceRegistry {
     if (!list) return
     const index = list.indexOf(consumer)
     if (index >= 0) list.splice(index, 1)
+  }
+
+  /**
+   * Quiescence teardown (dsh dispose rule): wait for all in-flight service
+   * calls under `withActive()` to settle before resolving, bounded by
+   * `maxWaitMs` (default 5000). After dispose the registry refuses new
+   * `withActive()` calls (fail-closed).
+   */
+  async dispose(options: { maxWaitMs?: number } = {}): Promise<void> {
+    const maxWaitMs = options.maxWaitMs ?? 5000
+    const deadline = Date.now() + maxWaitMs
+    while (this.inFlight.size > 0 && Date.now() < deadline) {
+      await Promise.race([
+        Promise.allSettled(Array.from(this.inFlight)),
+        new Promise((resolve) => setTimeout(resolve, 25)),
+      ])
+    }
+    this.disposed = true
+  }
+
+  /** Number of un-settled in-flight calls (diagnostics/tests). */
+  get pendingCount(): number {
+    return this.inFlight.size
   }
 }
