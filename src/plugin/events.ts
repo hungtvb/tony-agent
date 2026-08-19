@@ -59,11 +59,11 @@ export class EventBus<E extends EventMap = EventMap> {
 
   on<Name extends keyof E & string>(event: Name, listener: (event: TypedEvent<E, Name>) => void): () => void
   on(listener: EventListener): () => void
-  on(...args: [string, EventListener] | [EventListener]): () => void {
+  on(...args: [string, (event: never) => void] | [EventListener]): () => void {
     const [first, second] = args
     if (typeof first === 'string') {
       const name = first
-      const listener = second as EventListener
+      const listener = (second ?? ((_event: never) => {})) as EventListener
       const wrapped: EventListener = (broadcast) => {
         if (broadcast.type !== name) return
         listener(broadcast)
