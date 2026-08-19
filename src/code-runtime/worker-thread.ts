@@ -59,6 +59,10 @@ export function createWorkerThreadRuntime(): CodeRuntime {
     language: 'typescript',
     async run(request) {
       const started = Date.now()
+      // abort BEFORE anything reaches the worker
+      if (request.signal?.aborted) {
+        return { ok: false, stdout: '', stderr: '', error: 'Aborted', durationMs: 0 }
+      }
       // policy pre-flight: reject before anything reaches the worker
       const policyIssues = validateCodePolicy(request.code, request.policy)
       if (policyIssues.length > 0) {
@@ -67,17 +71,24 @@ export function createWorkerThreadRuntime(): CodeRuntime {
       const target = await ensureWorker()
       const result = await new Promise<CodeRunResult>((resolve) => {
         let messageHandler: ((data: unknown) => void) | undefined
-        const timeout = setTimeout(() => {
-          if (messageHandler) target.off('message', messageHandler)
-          resolve({ ok: false, stdout: '', stderr: '', error: 'Timed out', durationMs: Date.now() - started })
-        }, request.timeoutMs ?? 30_000)
-        messageHandler = (data: unknown): void => {
+        const settled = (value: CodeRunResult): void => {
           clearTimeout(timeout)
-          target.off('message', messageHandler as (data: unknown) => void)
+          if (messageHandler) target.off('message', messageHandler)
+          if (request.signal) request.signal.removeEventListener('abort', onAbort)
+          resolve(value)
+        }
+        const timeout = setTimeout(() => {
+          settled({ ok: false, stdout: '', stderr: '', error: 'Timed out', durationMs: Date.now() - started })
+        }, request.timeoutMs ?? 30_000)
+        const onAbort = (): void => {
+          settled({ ok: false, stdout: '', stderr: '', error: 'Aborted', durationMs: Date.now() - started })
+        }
+        messageHandler = (data: unknown): void => {
           const normalized = (data ?? {}) as Partial<CodeRunResult>
-          resolve({ ok: false, stdout: '', stderr: '', ...normalized, durationMs: Date.now() - started })
+          settled({ ok: false, stdout: '', stderr: '', ...normalized, durationMs: Date.now() - started })
         }
         target.on('message', messageHandler)
+        request.signal?.addEventListener('abort', onAbort, { once: true })
         target.postMessage({ code: request.code, cwd: request.cwd, timeoutMs: request.timeoutMs })
       })
       return result
