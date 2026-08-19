@@ -29,6 +29,7 @@ export interface SessionQueryEngineOptions {
  */
 export class SessionQueryEngine {
   private readonly db: SqliteDatabase
+  private readonly liveTables = new Map<string, string>()
 
   constructor(options: SessionQueryEngineOptions) {
     const db = new BetterSqlite3(options.indexPath)
@@ -159,18 +160,53 @@ export class SessionQueryEngine {
         lastScore: options.cursor?.lastScore ?? 0,
         limit: limit + 1, // fetch one extra to know if there is a next page
       }) as Array<{ rowid: number; session_id: string; seq: number; kind: string; body: string; score: number }>
-    const hits = rows.slice(0, limit).map((row) => ({
-      sessionId: row.session_id,
-      seq: row.seq,
-      kind: row.kind,
-      snippet: makeSnippet(row.body, query),
-      score: row.score,
-    }))
+    // Surface fold: live TEMP shadow replaces durable rows for open sessions.
+    const liveSids = new Set(this.liveTables.keys())
+    const hits = rows
+      .filter((row) => !(options.sessionId && liveSids.has(options.sessionId)) && !(liveSids.has(row.session_id) && this.liveHasSeq(row.session_id, row.seq, row.body)))
+      .slice(0, limit)
+      .map((row) => ({
+        sessionId: row.session_id,
+        seq: row.seq,
+        kind: row.kind,
+        snippet: makeSnippet(row.body, query),
+        score: row.score,
+      }))
+    // append live shadow rows that match
+    if (!options.sessionId || liveSids.has(options.sessionId)) {
+      for (const [sid, table] of Array.from(this.liveTables)) {
+        if (options.sessionId && sid !== options.sessionId) continue
+        const liveRows = this.db
+          .prepare(`SELECT rowid, session_id, seq, kind, body FROM ${table} WHERE ${table} MATCH ?`)
+          .all(matcher) as Array<{ rowid: number; session_id: string; seq: number; kind: string; body: string }>
+        for (const liveRow of liveRows) {
+          const dup = hits.find((h) => h.sessionId === liveRow.session_id && h.seq === liveRow.seq)
+          if (!dup) {
+            hits.push({
+              sessionId: liveRow.session_id,
+              seq: liveRow.seq,
+              kind: liveRow.kind,
+              snippet: makeSnippet(liveRow.body, query),
+              score: liveRow.rowid, // live ordering by rowid is fine
+            })
+          }
+        }
+      }
+      hits.sort((a, b) => a.score - b.score)
+    }
     const hasMore = rows.length > limit
     const nextCursor: SearchCursor | undefined = hasMore
       ? { lastRowid: rows[limit - 1]!.rowid, lastScore: rows[limit - 1]!.score }
       : undefined
-    return { hits, ...(nextCursor ? { nextCursor } : {}) }
+    return { hits: hits.slice(0, limit), ...(nextCursor ? { nextCursor } : {}) }
+  }
+
+  /** True when a live shadow holds the same (session, seq, body) row. */
+  private liveHasSeq(sessionId: string, seq: number, body: string): boolean {
+    const table = this.liveTables.get(sessionId)
+    if (!table) return false
+    const row = this.db.prepare(`SELECT 1 AS x FROM ${table} WHERE session_id = ? AND seq = ? AND body = ?`).get(sessionId, seq, body) as { x: number } | undefined
+    return row !== undefined
   }
 
   /** Session-level aggregation: distinct sessions + match count + best event. */
@@ -205,19 +241,20 @@ export class SessionQueryEngine {
    * search prefers the live (newer) state. Returns a closer.
    */
   openLive(sessionId: string, entries: ReadonlyArray<Entry>): () => void {
-    // TEMP table is per-connection; durable rows remain in entries_fts but the
-    // live shadow wins via searchEvents' UNION (implemented in surface fold).
+    // TEMP FTS5 table shadows the durable rows; searchEvents folds live in.
     const live = `entries_fts_live_${sessionId.replace(/[^a-zA-Z0-9_]/g, '_')}`
-    this.db.exec(`DROP TABLE IF EXISTS ${live}`)
+    this.db.exec(`DROP TABLE IF EXISTS temp.${live}`)
     this.db.exec(
-      `CREATE TEMP TABLE ${live} AS SELECT rowid, session_id, seq, kind, body FROM entries_fts WHERE session_id = '${sessionId.replace(/'/g, "''")}'`,
+      `CREATE VIRTUAL TABLE temp.${live} USING fts5(session_id UNINDEXED, seq UNINDEXED, kind UNINDEXED, parent_id UNINDEXED, body, tokenize = 'unicode61')`,
     )
-    const insert = this.db.prepare(`INSERT INTO ${live} (session_id, seq, kind, body) VALUES (?, ?, ?, ?)`)
+    const insert = this.db.prepare(`INSERT INTO ${live} (session_id, seq, kind, parent_id, body) VALUES (?, ?, ?, ?, ?)`)
     for (const entry of entries) {
-      insert.run(sessionId, entry.seq, entry.kind, bodyFromEntry(entry))
+      insert.run(sessionId, entry.seq, entry.kind, entry.parentId, bodyFromEntry(entry))
     }
+    this.liveTables.set(sessionId, live)
     return () => {
-      this.db.exec(`DROP TABLE IF EXISTS ${live}`)
+      this.liveTables.delete(sessionId)
+      this.db.exec(`DROP TABLE IF EXISTS temp.${live}`)
     }
   }
 

@@ -262,4 +262,28 @@ describe('SessionQueryEngine skeleton', () => {
     expect(trace.ancestors.map((e) => e.seq)).toEqual([2, 1])
     engine.close()
   })
+
+  it('surface fold — live TEMP shadow wins over durable rows', async () => {
+    const dir = await tempDir()
+    const engine = new SessionQueryEngine({ indexPath: join(dir, 'index.db') })
+    const meta = { sessionId: 's1', name: 'S', createdAt: 1, updatedAt: 2 }
+    engine.sync('s1', [
+      createEntry({ kind: 'message', message: { role: 'user', content: 'old secret plan' }, seq: 1, parentId: 0 }),
+    ], meta)
+    // durable search finds the old row
+    expect(engine.searchEvents('secret', { sessionId: 's1' }).hits.length).toBe(1)
+    // open live with a NEWER entry that shadows (replaces) the old content
+    const close = engine.openLive('s1', [
+      createEntry({ kind: 'message', message: { role: 'user', content: 'new public plan' }, seq: 1, parentId: 0 }),
+    ])
+    // live wins: old content hidden, new content searchable
+    const liveHits = engine.searchEvents('public', { sessionId: 's1' })
+    expect(liveHits.hits.length).toBe(1)
+    expect(engine.searchEvents('secret', { sessionId: 's1' }).hits.length).toBe(0)
+    expect(liveHits.hits[0]!.seq).toBe(1)
+    close()
+    // after close, durable visible again
+    expect(engine.searchEvents('secret', { sessionId: 's1' }).hits.length).toBe(1)
+    engine.close()
+  })
 })
