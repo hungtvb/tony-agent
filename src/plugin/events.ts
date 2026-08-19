@@ -11,6 +11,37 @@ export type BroadcastEvent =
 export type EventListener = (event: BroadcastEvent) => void
 
 /**
+ * EventMap — the typed event-names surface. Extend via declaration merging:
+ *
+ * ```ts
+ * declare module '../src/plugin/events.js' {
+ *   interface EventMap {
+ *     'user:greet': { name: string }
+ *   }
+ * }
+ * ```
+ *
+ * `emit<K>` is type-checked against this map; `on<K>` narrows the payload.
+ * Default entries are the built-in broadcast events without a name.
+ */
+export interface EventMap {
+  [name: string]: unknown
+}
+
+/**
+ * Map a string-keyed event to its typed payload:
+ * - explicit EventMap key (e.g. 'user:greet') → the declared payload type
+ * - anything else → the plain BroadcastEvent (backward compatible)
+ */
+export type TypedEvent<E extends EventMap, Name extends string> = Name extends keyof E
+  ? E[Name] extends unknown
+    ? { type: Name } & E[Name]
+    : { type: Name } & E[Name]
+  : BroadcastEvent
+
+export type TypedListener<E extends EventMap, Name extends string> = (event: TypedEvent<E, Name>) => void
+
+/**
  * EventBus — two dispatch kinds mirroring dsh:
  *
  * - `emit()`  broadcast: sync fan-out to every listener; a throwing listener
@@ -22,19 +53,35 @@ export type EventListener = (event: BroadcastEvent) => void
  * Disposers are returned per listener/middleware; `dispose()` waits for
  * in-flight waterfall runs (quiescence) before clearing.
  */
-export class EventBus {
+export class EventBus<E extends EventMap = EventMap> {
   private readonly listeners = new Set<EventListener>()
   private readonly waterfall = new ToolCallWaterfall()
 
-  on(listener: EventListener): () => void {
-    this.listeners.add(listener)
-    return () => this.listeners.delete(listener)
+  on<Name extends keyof E & string>(event: Name, listener: (event: TypedEvent<E, Name>) => void): () => void
+  on(listener: EventListener): () => void
+  on(...args: [string, EventListener] | [EventListener]): () => void {
+    const [first, second] = args
+    if (typeof first === 'string') {
+      const name = first
+      const listener = second as EventListener
+      const wrapped: EventListener = (broadcast) => {
+        if (broadcast.type !== name) return
+        listener(broadcast)
+      }
+      this.listeners.add(wrapped)
+      return () => this.listeners.delete(wrapped)
+    }
+    this.listeners.add(first)
+    return () => this.listeners.delete(first)
   }
 
-  emit(event: BroadcastEvent): void {
+  emit<Name extends keyof E & string>(event: Name, payload: E[Name]): void
+  emit(event: BroadcastEvent): void
+  emit(event: string | BroadcastEvent, payload?: unknown): void {
+    const broadcast: BroadcastEvent = typeof event === 'string' ? { type: event, ...(payload as Record<string, unknown>) } : event
     for (const listener of Array.from(this.listeners)) {
       try {
-        listener(event)
+        listener(broadcast)
       } catch {
         // broadcast is fail-open: one bad listener must not break the rest
       }
