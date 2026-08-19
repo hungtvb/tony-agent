@@ -40,6 +40,14 @@ describe('CLI argument parsing (pi-parity commands)', () => {
     expect(parseCliArgs(['client']).command).toBe('client')
   })
 
+  it('parses search with query and session flag', () => {
+    const parsed: ParsedCli = parseCliArgs(['search', 'FTS5', '--session', 'abc', '--json'])
+    expect(parsed.command).toBe('search')
+    expect(parsed.prompt).toBe('FTS5')
+    expect(parsed.session).toBe('abc')
+    expect(parsed.json).toBe(true)
+  })
+
   it('parses models with json flag', () => {
     const parsed: ParsedCli = parseCliArgs(['models', '--json'])
     expect(parsed.command).toBe('models')

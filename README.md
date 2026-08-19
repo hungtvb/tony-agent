@@ -1,6 +1,6 @@
 # Tony Agent
 
-Self-built, pure TypeScript agent harness. No agent harness dependency — the agent loop, LLM transport, tool system, permission policy, durable sessions, remote protocol, plugin system, and capability seams are all implemented in this repository. **v0.4.0** adds tools presentation modes (native/code/both), cooperative cancellation (AbortSignal propagation), subagent cold resume, PatchLayer session-scoped overrides, ServiceRegistry quiescence teardown, and a vitest coverage gate with CI job.
+Self-built, pure TypeScript agent harness. No agent harness dependency — the agent loop, LLM transport, tool system, permission policy, durable sessions, remote protocol, plugin system, and capability seams are all implemented in this repository. **v0.5.0** adds Session Query (FTS5): a derived, rebuildable full-text index over session history with `search` CLI, snippet highlighting, keyset cursor paging, session-level aggregation, and session/event lineage tracing. Also typed EventBus (EventMap + `emit<K>` type-checked) and snapshot test fixtures (record/replay ScriptedLLM steps).
 
 - **Unified LLM layer** — `Models`/`Api` abstraction with provider adapters (OpenAI-compatible, Anthropic, OpenRouter, Vercel gateway), model discovery, and a credential store persisting real keys (0600) so restarts survive.
 - **Agent loop** — bounded LLM → tool → result loop with streaming deltas, per-turn and per-run limits, loop detection, abort, and event stream.
@@ -14,6 +14,7 @@ Self-built, pure TypeScript agent harness. No agent harness dependency — the a
 - **Remote protocol** — framed CBOR (4-byte length + CBOR body) with `TonyServer`/`TonyClient` for remote sessions.
 - **Security** — code runtime in an empty vm context (no `require`/`process` escape), OAuth 2.0 PKCE (RFC 7636), hooks bridge with exit-code contract.
 - **Testing (v0.4)** — vitest coverage gate (`npm run test:coverage`) with v8 provider + thresholds + dedicated CI job; smoke `npm run smoke`.
+- **Session Query (v0.5)** — FTS5 derived index (`src/query/`): `SessionQueryEngine` with `sync`/`searchEvents`/`searchSessions`/`traceSession`/`traceEvent`, literal-phrase semantics (FTS keywords treated as data), snippet highlighting, keyset cursor paging, lineage cycle-safety, and a live TEMP shadow surface fold. CLI: `tony-agent search "<query>" [--session <id>] [--json]`.
 
 See `ARCHITECTURE.md` for the full module map and core invariants.
 
