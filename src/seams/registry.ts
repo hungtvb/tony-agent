@@ -4,6 +4,19 @@ import type { TonyTool } from '../types.js'
 
 export type { ServiceDefinition, ServiceProvider, ServiceConsumer } from './types.js'
 
+/** Service id convention: kebab-case, lowercase, starts with a letter. */
+const SERVICE_NAME_RE = /^[a-z][a-z0-9-]*$/
+/** Tool name convention: `service:action`, both parts kebab-case. */
+const TOOL_NAME_RE = /^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$/
+
+export function validateServiceName(name: string): boolean {
+  return SERVICE_NAME_RE.test(name)
+}
+
+export function validateToolName(name: string): boolean {
+  return TOOL_NAME_RE.test(name)
+}
+
 interface ProviderEntry {
   provider: ServiceProvider
   instance: unknown
@@ -38,6 +51,12 @@ export class ServiceRegistry {
 
   register<T>(provider: ServiceProvider<T>): () => void {
     if (!provider?.definition?.id || !provider.name) throw new Error('Provider needs definition.id and name')
+    if (!validateServiceName(provider.definition.id)) {
+      throw new Error(`Invalid service id: ${provider.definition.id} (expected kebab-case ^[a-z][a-z0-9-]*$`)
+    }
+    if (!validateServiceName(provider.name)) {
+      throw new Error(`Invalid provider name: ${provider.name} (expected kebab-case ^[a-z][a-z0-9-]*$`)
+    }
     const id = provider.definition.id
     const stack = this.providers.get(id) ?? []
     if (stack.length > 0) {

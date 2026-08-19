@@ -45,14 +45,14 @@ describe('shell service seam', () => {
     }
   })
 
-  it('consumer produces shell_run tool that returns stdout', async () => {
+  it('consumer produces shell:run tool that returns stdout', async () => {
     const root = await tempRoot()
     try {
       const reg = new ServiceRegistry()
       reg.register(createLocalShellProvider({ root }))
       const tools = reg.consume('shell', createShellConsumer())
       expect(tools).toHaveLength(1)
-      expect(tools[0]!.name).toBe('shell_run')
+      expect(tools[0]!.name).toBe('shell:run')
       const result = await tools[0]!.execute({ command: 'echo hello' }, ctx)
       expect(result.isError).toBeUndefined()
       expect(result.content).toBe('hello')

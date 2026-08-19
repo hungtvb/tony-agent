@@ -30,12 +30,12 @@ describe('subagent plugin', () => {
     expect(ctx.services.activeProviderName(SUBAGENT_SERVICE_ID)).toBe('in-process')
   })
 
-  it('exposes delegate_subagent tool through the scope', () => {
+  it('exposes subagent:delegate tool through the scope', () => {
     const ctx = fakeContext()
     const registry = new PluginRegistry()
     const complete = vi.fn(async () => ({ text: 'ok', toolCalls: [], usage: undefined, stopReason: 'stop' as const }))
     registry.mount(createSubagentPlugin({ complete }), ctx)
-    expect(ctx.tools.has('delegate_subagent')).toBe(true)
+    expect(ctx.tools.has('subagent:delegate')).toBe(true)
   })
 
   it('plugin tool delegates to an in-process provider and returns formatted result', async () => {
@@ -43,7 +43,7 @@ describe('subagent plugin', () => {
     const registry = new PluginRegistry()
     const complete = vi.fn(async () => ({ text: 'findings: 42', toolCalls: [], usage: undefined, stopReason: 'stop' as const }))
     registry.mount(createSubagentPlugin({ complete }), ctx)
-    const resolved = ctx.tools.resolve('delegate_subagent', () => undefined)
+    const resolved = ctx.tools.resolve('subagent:delegate', () => undefined)
     const tool = (Array.isArray(resolved) ? resolved[0] : resolved) as unknown as { execute: (input: { prompt: string }, ctx: { signal: AbortSignal; sessionId: string }) => Promise<{ content: string; isError?: boolean }> }
     const result = await tool.execute({ prompt: 'analyze' }, { signal: new AbortController().signal, sessionId: 's' })
     expect(result.content).toContain('findings: 42')
@@ -57,7 +57,7 @@ describe('subagent plugin', () => {
     await registry.unmount('subagent')
     expect(registry.isMounted('subagent')).toBe(false)
     expect(ctx.services.has(SUBAGENT_SERVICE_ID)).toBe(false)
-    expect(ctx.tools.has('delegate_subagent')).toBe(false)
+    expect(ctx.tools.has('subagent:delegate')).toBe(false)
   })
 
   it('rejects delegation when no provider is mounted (fail closed)', async () => {

@@ -15,14 +15,14 @@ const stringProp = (description: string) => ({ type: 'string', description })
 const numberProp = (description: string) => ({ type: 'number', description })
 
 /**
- * Model-facing `delegate_subagent` tool — fan-out a subtask to a registered
+ * Model-facing `subagent:delegate` tool — fan-out a subtask to a registered
  * subagent provider (defaults to 'in-process'). The child gets its own
  * transcript/session and an optional tool filter; the parent blocks until the
  * child settles. Returns the child's final text.
  */
 export function createSubagentTool(registry: SubagentRegistry, options: CreateSubagentToolOptions = {}): TonyTool<any> {
   return {
-    name: 'delegate_subagent',
+    name: 'subagent:delegate',
     description:
       'Delegate a self-contained subtask to a subagent with its own session. Returns the subagent final answer. Use for reasoning-heavy, isolatable work that would flood the main context.',
     risk: 'risky',
