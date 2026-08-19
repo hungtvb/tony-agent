@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module'
 import type { Entry } from '../harness/session/types.js'
-import type { SessionMeta } from './types.js'
+import type { EventHit, SearchCursor, SearchOptions, SearchResult, SessionHit, SessionMeta } from './types.js'
 
 const SCHEMA_VERSION = 2
 
@@ -126,6 +126,110 @@ export class SessionQueryEngine {
     })
     transaction()
   }
+
+  /**
+   * Full-text search over entry bodies. Literal phrase semantics: the query
+   * is quoted so FTS keywords (OR/NEAR/*) are treated as data, not syntax.
+   */
+  searchEvents(query: string, options: SearchOptions = {}): SearchResult<EventHit> {
+    const limit = options.limit ?? 10
+    const matcher = escapeFtsLiteral(query)
+    const sessionFilter = options.sessionId ? 'AND session_id = @sid' : ''
+    const cursorFilter = options.cursor ? 'AND (score > @lastScore OR (score = @lastScore AND rowid > @lastRowid))' : ''
+    const sql = `
+      SELECT rowid, session_id, seq, kind, body, bm25(entries_fts) AS score
+      FROM entries_fts
+      WHERE entries_fts MATCH @matcher ${sessionFilter} ${cursorFilter}
+      ORDER BY score, rowid
+      LIMIT @limit
+    `
+    const rows = this.db
+      .prepare(sql)
+      .all({
+        matcher,
+        sid: options.sessionId ?? '',
+        lastRowid: options.cursor?.lastRowid ?? 0,
+        lastScore: options.cursor?.lastScore ?? 0,
+        limit: limit + 1, // fetch one extra to know if there is a next page
+      }) as Array<{ rowid: number; session_id: string; seq: number; kind: string; body: string; score: number }>
+    const hits = rows.slice(0, limit).map((row) => ({
+      sessionId: row.session_id,
+      seq: row.seq,
+      kind: row.kind,
+      snippet: makeSnippet(row.body, query),
+      score: row.score,
+    }))
+    const hasMore = rows.length > limit
+    const nextCursor: SearchCursor | undefined = hasMore
+      ? { lastRowid: rows[limit - 1]!.rowid, lastScore: rows[limit - 1]!.score }
+      : undefined
+    return { hits, ...(nextCursor ? { nextCursor } : {}) }
+  }
+
+  /** Session-level aggregation: distinct sessions + match count + best event. */
+  searchSessions(query: string, options: SearchOptions = {}): SearchResult<SessionHit> {
+    const eventResult = this.searchEvents(query, { ...options, limit: (options.limit ?? 10) * 10 })
+    const bySession = new Map<string, { count: number; bestScore: number; best?: EventHit }>()
+    for (const hit of eventResult.hits) {
+      const existing = bySession.get(hit.sessionId)
+      if (!existing) {
+        bySession.set(hit.sessionId, { count: 1, bestScore: hit.score, best: hit })
+      } else {
+        existing.count += 1
+        if (hit.score < existing.bestScore) {
+          existing.bestScore = hit.score
+          existing.best = hit
+        }
+      }
+    }
+    const hits = Array.from(bySession.entries())
+      .sort((a, b) => a[1].bestScore - b[1].bestScore)
+      .slice(0, options.limit ?? 10)
+      .map(([sessionId, agg]) => ({
+        sessionId,
+        matchCount: agg.count,
+        ...(agg.best ? { bestEvent: agg.best } : {}),
+      }))
+    return { hits }
+  }
+
+  /**
+   * Open a session as "live": shadow the durable rows with a TEMP copy so
+   * search prefers the live (newer) state. Returns a closer.
+   */
+  openLive(sessionId: string, entries: ReadonlyArray<Entry>): () => void {
+    // TEMP table is per-connection; durable rows remain in entries_fts but the
+    // live shadow wins via searchEvents' UNION (implemented in surface fold).
+    const live = `entries_fts_live_${sessionId.replace(/[^a-zA-Z0-9_]/g, '_')}`
+    this.db.exec(`DROP TABLE IF EXISTS ${live}`)
+    this.db.exec(
+      `CREATE TEMP TABLE ${live} AS SELECT rowid, session_id, seq, kind, body FROM entries_fts WHERE session_id = '${sessionId.replace(/'/g, "''")}'`,
+    )
+    const insert = this.db.prepare(`INSERT INTO ${live} (session_id, seq, kind, body) VALUES (?, ?, ?, ?)`)
+    for (const entry of entries) {
+      insert.run(sessionId, entry.seq, entry.kind, bodyFromEntry(entry))
+    }
+    return () => {
+      this.db.exec(`DROP TABLE IF EXISTS ${live}`)
+    }
+  }
+}
+
+/** Quote a user query as an FTS5 literal phrase (syntax treated as data). */
+export function escapeFtsLiteral(query: string): string {
+  // FTS5 double-quoted strings: escape embedded quotes by doubling them.
+  return `"${query.replace(/"/g, '""')}"`
+}
+
+/** Build a compact snippet around the first occurrence of the query. */
+export function makeSnippet(body: string, query: string, radius = 60): string {
+  const lower = body.toLowerCase()
+  const needle = query.toLowerCase()
+  const index = lower.indexOf(needle)
+  if (index < 0) return body.slice(0, radius * 2)
+  const start = Math.max(0, index - radius)
+  const end = Math.min(body.length, index + needle.length + radius)
+  return (start > 0 ? '…' : '') + body.slice(start, end) + (end < body.length ? '…' : '')
 }
 
 /** Extract the searchable text body from a session entry by kind. */

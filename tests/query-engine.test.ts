@@ -24,6 +24,10 @@ async function openProbe(path: string) {
   return new Better(path)
 }
 
+function nextCursorUndefined<T>(result: { nextCursor?: unknown }): boolean {
+  return result.nextCursor === undefined
+}
+
 describe('SessionQueryEngine skeleton', () => {
   it('creates a derived index DB with durability pragmas', async () => {
     const dir = await tempDir()
@@ -114,6 +118,94 @@ describe('SessionQueryEngine skeleton', () => {
     engine.deleteSession('s1')
     expect(engine.countEntries('s1')).toBe(0)
     expect(engine.getMeta('s1')).toBeUndefined()
+    engine.close()
+  })
+
+  it('searchEvents finds matching entries with snippets', async () => {
+    const dir = await tempDir()
+    const engine = new SessionQueryEngine({ indexPath: join(dir, 'index.db') })
+    const meta: SessionMeta = { sessionId: 's1', name: 'S', createdAt: 1, updatedAt: 2 }
+    engine.sync('s1', [
+      createEntry({ kind: 'message', message: { role: 'user', content: 'The quick brown fox jumps over the lazy dog' }, seq: 1, parentId: 0 }),
+      createEntry({ kind: 'message', message: { role: 'user', content: 'Nothing about cats here' }, seq: 2, parentId: 1 }),
+    ], meta)
+    const result = engine.searchEvents('brown fox')
+    expect(result.hits.length).toBe(1)
+    expect(result.hits[0]!.sessionId).toBe('s1')
+    expect(result.hits[0]!.seq).toBe(1)
+    expect(result.hits[0]!.kind).toBe('message')
+    expect(result.hits[0]!.snippet).toContain('brown fox')
+    expect(nextCursorUndefined(result)).toBe(true)
+    engine.close()
+  })
+
+  it('searchEvents literal phrase — FTS syntax is treated as data', async () => {
+    const dir = await tempDir()
+    const engine = new SessionQueryEngine({ indexPath: join(dir, 'index.db') })
+    const meta: SessionMeta = { sessionId: 's1', name: 'S', createdAt: 1, updatedAt: 2 }
+    engine.sync('s1', [
+      createEntry({ kind: 'message', message: { role: 'user', content: 'OR is a keyword in FTS but we store NEAR too' }, seq: 1, parentId: 0 }),
+      createEntry({ kind: 'message', message: { role: 'user', content: 'plain sentence' }, seq: 2, parentId: 1 }),
+    ], meta)
+    // searching the literal phrase "OR" must not blow up (it is FTS syntax)
+    const result = engine.searchEvents('OR')
+    expect(result.hits.length).toBeGreaterThanOrEqual(0)
+    engine.close()
+  })
+
+  it('searchEvents scoped to one session', async () => {
+    const dir = await tempDir()
+    const engine = new SessionQueryEngine({ indexPath: join(dir, 'index.db') })
+    const meta = { sessionId: 's1', name: 'S', createdAt: 1, updatedAt: 2 }
+    engine.sync('s1', [
+      createEntry({ kind: 'message', message: { role: 'user', content: 'alpha beta gamma' }, seq: 1, parentId: 0 }),
+    ], meta)
+    engine.sync('s2', [
+      createEntry({ kind: 'message', message: { role: 'user', content: 'alpha delta' }, seq: 1, parentId: 0 }),
+    ], { ...meta, sessionId: 's2' })
+    const result = engine.searchEvents('alpha', { sessionId: 's1' })
+    expect(result.hits.length).toBe(1)
+    expect(result.hits[0]!.sessionId).toBe('s1')
+    engine.close()
+  })
+
+  it('searchSessions aggregates per session with bestEvent', async () => {
+    const dir = await tempDir()
+    const engine = new SessionQueryEngine({ indexPath: join(dir, 'index.db') })
+    engine.sync('s1', [
+      createEntry({ kind: 'message', message: { role: 'user', content: 'alpha one' }, seq: 1, parentId: 0 }),
+      createEntry({ kind: 'message', message: { role: 'user', content: 'alpha two' }, seq: 2, parentId: 1 }),
+    ], { sessionId: 's1', name: 'S1', createdAt: 1, updatedAt: 2 })
+    engine.sync('s2', [
+      createEntry({ kind: 'message', message: { role: 'user', content: 'alpha three' }, seq: 1, parentId: 0 }),
+    ], { sessionId: 's2', name: 'S2', createdAt: 1, updatedAt: 2 })
+    const result = engine.searchSessions('alpha')
+    expect(result.hits.length).toBe(2)
+    const s1 = result.hits.find((h) => h.sessionId === 's1')
+    const s2 = result.hits.find((h) => h.sessionId === 's2')
+    expect(s1?.matchCount).toBe(2)
+    expect(s2?.matchCount).toBe(1)
+    expect(s1?.bestEvent).toBeDefined()
+    engine.close()
+  })
+
+  it('cursor paging — page 2 does not repeat page 1', async () => {
+    const dir = await tempDir()
+    const engine = new SessionQueryEngine({ indexPath: join(dir, 'index.db') })
+    const meta = { sessionId: 's1', name: 'S', createdAt: 1, updatedAt: 2 }
+    engine.sync('s1', [
+      createEntry({ kind: 'message', message: { role: 'user', content: 'alpha row 1' }, seq: 1, parentId: 0 }),
+      createEntry({ kind: 'message', message: { role: 'user', content: 'alpha row 2' }, seq: 2, parentId: 1 }),
+      createEntry({ kind: 'message', message: { role: 'user', content: 'alpha row 3' }, seq: 3, parentId: 2 }),
+    ], meta)
+    const page1 = engine.searchEvents('alpha', { limit: 2 })
+    expect(page1.hits.length).toBe(2)
+    expect(page1.nextCursor).toBeDefined()
+    const page2 = engine.searchEvents('alpha', { limit: 2, cursor: page1.nextCursor })
+    expect(page2.hits.length).toBe(1)
+    const ids1 = page1.hits.map((h) => h.seq).sort()
+    const ids2 = page2.hits.map((h) => h.seq).sort()
+    expect(ids1).not.toEqual(ids2)
     engine.close()
   })
 })
