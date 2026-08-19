@@ -61,6 +61,55 @@ export const AgentMessage = {
     throw new Error('Invalid AgentMessage JSON')
   },
 
+  /**
+   * Rebuild an AgentMessage transcript from wire messages (cold resume):
+   * the inverse of toWire. toolResult messages carry their toolCallId etc.
+   * in a JSON string payload.
+   */
+  fromWire(messages: SimpleMessage[]): AgentMessage[] {
+    const transcript: AgentMessage[] = []
+    for (const message of messages) {
+      switch (message.role) {
+        case 'user': {
+          transcript.push(AgentMessage.from('user', { content: message.content }))
+          break
+        }
+        case 'assistant': {
+          const parts = Array.isArray(message.content) ? message.content : [{ type: 'text' as const, text: String(message.content) }]
+          const text = parts
+            .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
+            .map((part) => part.text)
+            .join('')
+          const toolCalls = (parts.filter((part) => (part as { type?: string }).type === 'toolCall') as Array<{ type: 'toolCall'; id: string; name: string; arguments: unknown }>)
+            .map((part) => ({ id: part.id, name: part.name, arguments: part.arguments }))
+          transcript.push(
+            AgentMessage.from('assistant', {
+              content: text,
+              ...(toolCalls.length > 0 ? { toolCalls } : {}),
+              ...(message.usage ? { usage: message.usage } : {}),
+              ...(message.stopReason ? { stopReason: message.stopReason } : {}),
+            }),
+          )
+          break
+        }
+        case 'toolResult': {
+          const payload = (typeof message.content === 'string' ? message.content : JSON.stringify(message.content)) as string
+          let parsed: ToolResultContent
+          try {
+            parsed = JSON.parse(payload) as ToolResultContent
+          } catch {
+            parsed = { toolCallId: 'unknown', name: 'unknown', content: payload }
+          }
+          transcript.push(AgentMessage.from('toolResult', parsed))
+          break
+        }
+        default:
+          break
+      }
+    }
+    return transcript
+  },
+
   toWire(messages: AgentMessage[]): SimpleMessage[] {
     const wire: SimpleMessage[] = []
     for (const message of messages) {
