@@ -87,6 +87,19 @@ export function createQueryConsumer(): ServiceConsumer<SessionQueryEngine> {
   }
 }
 
+/** Build the model-facing tools for an engine (direct wiring, no plugin ctx). */
+export function createQueryTools(engine: SessionQueryEngine, toolName = 'query:search'): TonyTool[] {
+  const produced = createQueryConsumer().uses(engine)
+  const tools = (Array.isArray(produced) ? produced : [produced]) as TonyTool[]
+  // Runtime ToolRegistry names use `snake_case`; seam defaults use `service:action`.
+  for (const tool of tools) {
+    if (toolName !== tool.name) {
+      tool.name = toolName
+    }
+  }
+  return tools
+}
+
 function formatEventHits(result: SearchResult<EventHit>, query: string): string {
   if (result.hits.length === 0) return `No entries match "${query}"`
   const lines = result.hits.map(

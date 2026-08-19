@@ -19,6 +19,7 @@ import {
 } from '../index.js'
 import { parseCliArgs } from './args.js'
 import { SessionQueryEngine } from '../query/engine.js'
+import { createQueryTools } from '../query/plugin.js'
 import type { Entry } from '../harness/session/types.js'
 import { resolveProfile, applyProfile, dumpProfile } from '../config/profiles.js'
 import { bold, cyan, dim, green, red, yellow, magenta, icon, table, SPINNER_FRAMES } from './theme.js'
@@ -126,7 +127,7 @@ function printHelp(): void {
   output.write(HELP_TEXT + '\n')
 }
 
-function createTools(): { registry: ToolRegistry; adapter: MemoryPageAdapter } {
+async function createTools(dataDir: string, store: SessionStore): Promise<{ registry: ToolRegistry; adapter: MemoryPageAdapter }> {
   const adapter = new MemoryPageAdapter({
     url: 'https://tony.local/docs',
     title: 'Tony Agent local fixture',
@@ -134,7 +135,29 @@ function createTools(): { registry: ToolRegistry; adapter: MemoryPageAdapter } {
     controls: { '#learn-more': 'Learn more' },
     article: 'Tony Agent combines a local agent loop, provider transport, tools, permissions, and persistent sessions.',
   })
-  return { registry: new ToolRegistry().registerMany(createBrowserTools()), adapter }
+  const registry = new ToolRegistry().registerMany(createBrowserTools())
+  // Session-query wiring: derived FTS5 index over the session store, exposed
+  // to the model as `query:search`.
+  try {
+    const engine = new SessionQueryEngine({ indexPath: join(dataDir, 'index.db') })
+    const info = await store.list()
+    for (const sessionInfo of info) {
+      const entries = await store.readEntries(sessionInfo.id)
+      engine.sync(sessionInfo.id, toQueryEntries(entries), {
+        sessionId: sessionInfo.id,
+        name: sessionInfo.name ?? '',
+        createdAt: sessionInfo.createdAt ?? 0,
+        updatedAt: sessionInfo.updatedAt ?? 0,
+      })
+    }
+    for (const tool of createQueryTools(engine, 'query_search')) {
+      if (!registry.has(tool.name)) registry.register(tool)
+    }
+  } catch (error) {
+    // Index is derived and best-effort — a failure must not brick the CLI.
+    console.error('query:search unavailable: ' + (error instanceof Error ? error.message : String(error)))
+  }
+  return { registry, adapter }
 }
 
 async function resolvePermission(request: PermissionRequest, nonInteractive: boolean, rl?: ReturnType<typeof createInterface>): Promise<PermissionResolution> {
@@ -555,9 +578,9 @@ async function main(): Promise<void> {
     await doctor(options)
     return
   }
-  const { registry, adapter } = createTools()
   const store = new SessionStore(options.dataDir)
   await store.initialize()
+  const { registry, adapter } = await createTools(options.dataDir, store)
   let llm: LLMCompleter
   let offline = false
   if (options.baseUrl === 'offline') {

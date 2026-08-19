@@ -3,6 +3,8 @@ import { TonyAgent, type TonyAgentOptions } from './agent.js'
 import { SessionStore } from './session/store.js'
 import { deriveMessages, assertModelVisibleIsLogged } from './session/log.js'
 import { ToolRegistry } from './tools/registry.js'
+import type { SessionQueryEngine } from './query/engine.js'
+import { createQueryTools } from './query/plugin.js'
 import type { LLMCompleter, LLMMessage, PermissionRequest, PermissionResolution, SessionInfo, AgentEvent } from './types.js'
 import type { PageAdapter } from './host/adapter.js'
 
@@ -16,6 +18,8 @@ export interface TonyRuntimeOptions {
   resolvePermission?: (request: PermissionRequest) => Promise<PermissionResolution> | PermissionResolution
   onEvent?: (event: AgentEvent) => void
   limits?: TonyAgentOptions['limits']
+  /** Session-query engine — when present, `query:search` is registered into the runtime registry. */
+  queryEngine?: SessionQueryEngine
 }
 
 export interface TonySession {
@@ -36,6 +40,12 @@ export class TonyRuntime {
 
   constructor(private readonly options: TonyRuntimeOptions) {
     this.permissions = options.permissions ?? new PermissionPolicy()
+    // Session-query wiring: mount `query:search` into the shared registry.
+    if (options.queryEngine) {
+      for (const tool of createQueryTools(options.queryEngine, 'query_search')) {
+        if (!options.registry.has(tool.name)) options.registry.register(tool)
+      }
+    }
   }
 
   async createSession(name = 'New session'): Promise<TonySession> {
