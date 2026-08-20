@@ -220,6 +220,82 @@ export class SessionQueryEngine {
     return this.searchGraphLocal(query, options)
   }
 
+  /**
+   * SAG-style query-time hyperedge joins (v0.8): seed entities from the query,
+   * expand across relations up to `maxHops`, then rank EVENTS that mention any
+   * expanded entity — the event is the join point. Returns transitive hits
+   * (A mentions B, B relates to C → events about C come back for query A).
+   * Derived-DB read-only; bounded (10 entities/hop, limit rows).
+   */
+  searchRelated(query: string, options: { sessionId?: string; maxHops?: number; limit?: number } = {}): GraphSearchResult {
+    const limit = options.limit ?? 10
+    const maxHops = options.maxHops ?? 2
+    const sessionFilter = options.sessionId ? 'AND session_id = @sid' : ''
+    // 1. seed entities
+    const seeds = this.db
+      .prepare(`SELECT session_id, name, type FROM entities WHERE (name = @q OR name LIKE @like) ${sessionFilter} LIMIT 10`)
+      .all({ q: query, like: `%${query}%`, sid: options.sessionId ?? '' }) as Array<{ session_id: string; name: string; type: string }>
+    if (seeds.length === 0) return { hits: [] }
+    // 2. BFS across relations (bounded 10/hop)
+    const expanded = new Map<string, number>()
+    for (const s of seeds) expanded.set(s.name, 0)
+    const queue = seeds.slice(0, 10).map((s) => s.name)
+    let hop = 0
+    while (queue.length > 0 && hop < maxHops) {
+      hop++
+      const batch = queue.splice(0, 10)
+      const placeholders = batch.map(() => '?').join(',')
+
+      let relRows: Array<{ source: string; target: string; session_id?: string }>
+      if (options.sessionId) {
+        relRows = this.db
+          .prepare(`SELECT source, target, session_id FROM relations WHERE source IN (${placeholders}) OR target IN (${placeholders}) AND session_id = @sid`)
+          .all(...batch, ...batch, options.sessionId) as Array<{ source: string; target: string; session_id: string }>
+      } else {
+        relRows = this.db
+          .prepare(`SELECT source, target, session_id FROM relations WHERE source IN (${placeholders}) OR target IN (${placeholders})`)
+          .all(...batch, ...batch) as Array<{ source: string; target: string; session_id: string }>
+      }
+      for (const r of relRows) {
+        const other = expanded.has(r.source) ? r.target : r.source
+        if (!expanded.has(other) && expanded.size < 40) {
+          expanded.set(other, hop)
+          queue.push(other)
+        }
+      }
+    }
+    // 3. events mentioning any expanded entity (hyperedge join)
+    // NOTE: dedupe key = event + ENTITY, not event alone — a single event may
+    // mention several expanded entities and each is a distinct transitive lane
+    // (dedupe-by-event would let the lowest-hop entity swallow higher-hop ones
+    // like C below and hide transitive recall).
+    const names = Array.from(expanded.keys())
+    const hits: GraphHit[] = []
+    const seen = new Map<string, GraphHit>()
+    for (const name of names.slice(0, 20)) {
+      // FTS5 MATCH = token-exact and case-insensitive in a safe way: a quoted
+      // phrase matches only that token sequence, so entity "A" can't hijack a
+      // row that merely contains "a" inside another word (LIKE/GLOB substring
+      // false-positive — the bug this replaces).
+      const rows = this.db
+        .prepare(`SELECT session_id, seq, body FROM entries_fts WHERE body MATCH @match ${sessionFilter} ORDER BY seq LIMIT @lim`)
+        .all({ match: `"${name.replace(/"/g, '""')}"`, sid: options.sessionId ?? '', lim: 5 }) as Array<{ session_id: string; seq: number; body: string }>
+      for (const row of rows) {
+        const graphHit: GraphHit = {
+          sessionId: row.session_id,
+          seq: row.seq,
+          snippet: makeSnippet(row.body, name),
+          entity: name,
+          hop: expanded.get(name)!,
+        }
+        const key = `${row.session_id}:${row.seq}:${name}`
+        const existing = seen.get(key)
+        if (!existing || graphHit.hop < existing.hop) seen.set(key, graphHit)
+      }
+    }
+    return { hits: Array.from(seen.values()).sort((a, b) => a.hop - b.hop || a.seq - b.seq).slice(0, limit) }
+  }
+
   private searchGraphLocal(query: string, options: GraphSearchOptions): GraphSearchResult {
     const limit = options.limit ?? 10
     const maxHops = options.maxHops ?? 2
