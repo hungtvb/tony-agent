@@ -27,6 +27,8 @@ import { GraphExtractor } from '../query/extractor.js'
 import { createGraphContextBuilder } from '../query/graph-context.js'
 import type { Entry } from '../harness/session/types.js'
 import { resolveProfile, applyProfile, dumpProfile } from '../config/profiles.js'
+
+const VERSION = (JSON.parse(readFileSync(join(import.meta.dirname, '..', '..', 'package.json'), 'utf8')) as { version: string }).version
 import { bold, cyan, dim, green, red, yellow, magenta, icon, table, SPINNER_FRAMES } from './theme.js'
 
 interface CliOptions {
@@ -128,6 +130,31 @@ const HELP_TEXT = [
   '',
   bold('Interactive REPL:'),
   '  ' + dim('/help  /history  /reset  /models  /tools  /sessions  /profile  /compact  /exit'),
+].join('\n')
+
+// Licensed under the MIT License — see LICENSE
+// --- declared above (do not remove) ---
+const REPL_HELP_TEXT = [
+  '',
+  bold('REPL commands:'),
+  table(
+    ['command', 'description'],
+    [
+      ['/help', 'Show this help'],
+      ['/history', 'Show the current session transcript (compact)'],
+      ['/clear', 'Clear the terminal screen'],
+      ['/reset', 'Reset the session transcript'],
+      ['/models', 'List discovered provider models'],
+      ['/tools', 'List mounted tools'],
+      ['/sessions', 'List sessions'],
+      ['/lanes', 'List work lanes'],
+      ['/profile', 'Show current config profile'],
+      ['/compact', 'Compact the session log'],
+      ['/exit', 'Quit the REPL'],
+    ],
+    { widths: [10, 34] },
+  ),
+  '',
 ].join('\n')
 
 function printHelp(): void {
@@ -337,8 +364,7 @@ async function main(): Promise<void> {
     return
   }
   if (parsed.command === 'version') {
-    const pkg = JSON.parse(readFileSync(join(import.meta.dirname, '..', '..', 'package.json'), 'utf8')) as { version: string }
-    output.write('tony ' + pkg.version + '\n')
+    output.write('tony ' + VERSION + '\n')
     return
   }
   const options: CliOptions = {
@@ -766,11 +792,26 @@ async function main(): Promise<void> {
 
   const repl: Record<string, () => Promise<boolean>> = {
     '/help': async () => {
-      output.write('Commands: /help /history /reset /models /tools /sessions /profile /compact /exit\n')
+      output.write(REPL_HELP_TEXT + '\n')
       return false
     },
     '/history': async () => {
-      output.write(JSON.stringify(session.history(), null, 2) + '\n')
+      const lines = session.history().map((m) => {
+        const role = m.role as string
+        const body = typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+        return dim('[' + role + '] ') + (body.length > 160 ? body.slice(0, 160) + '…' : body)
+      })
+      output.write((lines.length ? lines.join('\n') : '(empty history)') + '\n')
+      return false
+    },
+    '/clear': async () => {
+      if (process.stdout.isTTY) process.stdout.write('\x1b[2J\x1b[H')
+      return false
+    },
+    '/lanes': async () => {
+      const all = await store.list()
+      const lanes = Array.from(new Set(all.map((s) => s.lane).filter((l): l is string => Boolean(l))))
+      output.write((lanes.length ? lanes.join(', ') : '(no lanes)') + '\n')
       return false
     },
     '/reset': async () => {
@@ -821,15 +862,22 @@ async function main(): Promise<void> {
       // Non-interactive stdin (piped) with no prompt — nothing to do.
       output.write('Type /help for commands, /exit to quit. (interactive mode requires a TTY; use -p "<text>" for one-shot)\n')
     } else {
-      output.write('Type /help for commands, /exit to quit.\n')
+      output.write(
+        '\n' + bold(icon.rocket + ' Tony Agent ' + magenta('v' + VERSION)) + dim(' — type a message, or /help for commands.\n\n'),
+      )
       while (true) {
-        const prompt = (await rl!.question('\n> ')).trim()
+        let prompt = ''
+        try {
+          prompt = (await rl!.question(cyan('💬 tony › '))).trim()
+        } catch {
+          break // Ctrl+D (EOF) — graceful exit
+        }
         if (!prompt) continue
         if (prompt.startsWith('/')) {
           const cmd = prompt.split(/\s+/)[0] ?? ''
           const handler = repl[cmd]
           if (!handler) {
-            output.write('Unknown command: ' + cmd + ' (type /help)\n')
+            output.write(red('Unknown command: ') + prompt + dim(' (type /help)\n'))
             continue
           }
           if (await handler()) break
