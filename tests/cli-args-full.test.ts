@@ -64,4 +64,15 @@ describe('cli args — full flag coverage', () => {
     expect(parsed.offline).toBe(false)
     expect(parsed.json).toBe(false)
   })
+
+  it('parses --timeout-ms', () => {
+    const parsed = parseCliArgs(['run', '-p', 'x', '--timeout-ms', '400000'])
+    expect(parsed.timeoutMs).toBe(400000)
+  })
+
+  it('parses --allow-risky', () => {
+    const parsed = parseCliArgs(['run', '-p', 'x', '--allow-risky'])
+    expect(parsed.allowRisky).toBe(true)
+    expect(parseCliArgs(['run']).allowRisky).toBe(false)
+  })
 })

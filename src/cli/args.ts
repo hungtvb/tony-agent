@@ -12,11 +12,13 @@ export interface ParsedCli {
   offline: boolean
   nonInteractive: boolean
   json: boolean
+  allowRisky: boolean
   dataDir?: string
   baseUrl?: string
   apiKey?: string
   model?: string
   maxTurns?: number
+  timeoutMs?: number
   stream: boolean
   profile?: string
   mode?: 'local' | 'global' | 'naive'
@@ -32,6 +34,7 @@ export function parseCliArgs(argv: string[]): ParsedCli {
     offline: false,
     nonInteractive: false,
     json: false,
+    allowRisky: false,
     stream: true,
     dumpConfig: false,
   }
@@ -49,12 +52,14 @@ export function parseCliArgs(argv: string[]): ParsedCli {
     else if (arg === '-s' || arg === '--session') { if (value) { parsed.session = value; index += 1 } }
     else if (arg === '--offline') parsed.offline = true
     else if (arg === '--non-interactive' || arg === '-y' || arg === '--yes') parsed.nonInteractive = true
+    else if (arg === '--allow-risky') parsed.allowRisky = true
     else if (arg === '--json') parsed.json = true
     else if (arg === '--data-dir' && value) { parsed.dataDir = value; index += 1 }
     else if (arg === '--base-url' && value) { parsed.baseUrl = value; index += 1 }
     else if (arg === '--api-key' && value) { parsed.apiKey = value; index += 1 }
     else if (arg === '--model' && value) { parsed.model = value; index += 1 }
     else if (arg === '--max-turns' && value) { parsed.maxTurns = Number.parseInt(value, 10); index += 1 }
+    else if (arg === '--timeout-ms' && value) { parsed.timeoutMs = Number.parseInt(value, 10); index += 1 }
     else if (arg === '--no-stream') parsed.stream = false
     else if (arg === '--profile' && value) { parsed.profile = value; index += 1 }
     else if (arg === '--mode' && value) { parsed.mode = value as 'local' | 'global' | 'naive'; index += 1 }
