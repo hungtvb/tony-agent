@@ -1,5 +1,29 @@
 # Tony Agent
 
+Self-built AI agent harness — agent loop, tool system, permission policy, durable sessions, remote protocol, plugins, and a graph knowledge layer, all in one pure-TypeScript package.
+
+## Quickstart
+
+```bash
+# install (globally or via your package manager)
+npm install -g tony-agent
+# or from a checkout:
+npm install && npm run build && npm link
+
+# first run — no config needed, drops into an offline REPL
+tony
+
+# with a real model:
+export TONY_LLM_URL=https://api.openai.com/v1
+export TONY_LLM_MODEL=gpt-4o
+tony
+
+# one-shot:
+tony -p "summarize my sessions"
+```
+
+Aliases: `tony` and `tony-agent` are both installed. `tony version`, `tony --help` work without any provider.
+
 Self-built, pure TypeScript agent harness. No agent harness dependency — the agent loop, LLM transport, tool system, permission policy, durable sessions, remote protocol, plugin system, and capability seams are all implemented in this repository. **v0.7.0** adds Graph Routing: the knowledge graph now *steers* workflows — `GraphRouter` maps a task to the entities in scope, the sessions that mention them, and an optional lineage-aware session to continue (advisory, heuristic-first, zero LLM cost). Exposed as `ctx.route()` / `ctx.routeAgents()` in `WorkflowEngine`, a `query:route` model tool, and `tony-agent graph route "<query>"`. **v0.6.1** added Graph Context Recall (per-turn recall block with `[session#seq]` citations). **v0.6.0** added the Graph Knowledge Layer (entity/relation extraction, `searchGraph` local/global/naive, CLI `graph`, `query:graph` tool) — multi-hop recall on top of the v0.5 FTS5 Session Query. Also typed EventBus and snapshot test fixtures.
 
 - **Unified LLM layer** — `Models`/`Api` abstraction with provider adapters (OpenAI-compatible, Anthropic, OpenRouter, Vercel gateway), model discovery, and a credential store persisting real keys (0600) so restarts survive.

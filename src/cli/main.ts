@@ -3,6 +3,7 @@ import { createInterface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { readFileSync } from 'node:fs'
 import {
   MemoryPageAdapter,
   PermissionPolicy,
@@ -333,6 +334,11 @@ async function main(): Promise<void> {
   const parsed = parseCliArgs(process.argv.slice(2))
   if (parsed.command === 'help') {
     printHelp()
+    return
+  }
+  if (parsed.command === 'version') {
+    const pkg = JSON.parse(readFileSync(join(import.meta.dirname, '..', '..', 'package.json'), 'utf8')) as { version: string }
+    output.write('tony ' + pkg.version + '\n')
     return
   }
   const options: CliOptions = {
@@ -696,6 +702,7 @@ async function main(): Promise<void> {
     await doctor(options)
     return
   }
+  const interactive = !options.prompt
   const store = new SessionStore(options.dataDir)
   await store.initialize()
   const { registry, adapter } = await createTools(options.dataDir, store)
@@ -704,11 +711,17 @@ async function main(): Promise<void> {
   if (options.baseUrl === 'offline') {
     offline = true
     llm = new OfflineCompleter()
+  } else if (interactive && !options.baseUrl && !readEnv('TONY_LLM_URL') && !readEnv('OPENAI_BASE_URL')) {
+    // First-run UX: no provider configured but the user just typed `tony`.
+    // Drop into the REPL on the deterministic offline engine and tell them
+    // how to wire a real model — never crash on first launch.
+    offline = true
+    llm = new OfflineCompleter()
+    output.write(yellow('⚠ no provider configured — running offline (deterministic fixture).\n') + dim('  Set TONY_LLM_URL + TONY_LLM_MODEL (or --base-url/--model) for a real model.\n') + '\n')
   } else {
     const provider = resolveProvider(options)
     llm = new TonyLLMClient({ baseUrl: provider.baseUrl, apiKey: provider.apiKey, model: provider.model, stream: options.stream })
   }
-  const interactive = !options.prompt
   const rl = interactive ? createInterface({ input, output }) : undefined
   const runtime = new TonyRuntime({
     store,

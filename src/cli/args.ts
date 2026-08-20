@@ -1,7 +1,7 @@
 export type CliCommand =
   | 'run' | 'prompt' | 'new' | 'steer' | 'abort' | 'fork' | 'compact' | 'export'
   | 'switch' | 'list' | 'get' | 'clone' | 'set' | 'cycle' | 'server' | 'client' | 'models' | 'doctor'
-  | 'profile' | 'dump-config' | 'search' | 'graph' | 'help'
+  | 'profile' | 'dump-config' | 'search' | 'graph' | 'help' | 'version'
 
 export interface ParsedCli {
   command: CliCommand
@@ -42,7 +42,7 @@ export function parseCliArgs(argv: string[]): ParsedCli {
     if (POSITIONAL_COMMANDS.has(arg as CliCommand) && !arg.startsWith('-')) {
       if (parsed.command === 'run') parsed.command = arg as CliCommand
       else positional.push(arg)
-    } else if (arg === 'run' || arg === 'server' || arg === 'client' || arg === 'models' || arg === 'abort' || arg === 'compact' || arg === 'export' || arg === 'doctor' || arg === 'list' || arg === 'steer' || arg === 'profile' || arg === 'dump-config' || arg === 'search' || arg === 'graph' || arg === 'help') {
+    } else if (arg === 'run' || arg === 'server' || arg === 'client' || arg === 'models' || arg === 'abort' || arg === 'compact' || arg === 'export' || arg === 'doctor' || arg === 'list' || arg === 'steer' || arg === 'profile' || arg === 'dump-config' || arg === 'search' || arg === 'graph' || arg === 'help' || arg === 'version') {
       if (parsed.command === 'run') parsed.command = arg as CliCommand
       else positional.push(arg)
     } else if (arg === '-p' || arg === '--prompt') { if (value) { parsed.prompt = value; index += 1 } }
