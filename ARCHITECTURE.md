@@ -5,7 +5,7 @@ agent loop, LLM transport, tool system, permission policy, durable sessions,
 remote protocol, plugin system, and capability seams are all implemented in
 this repository. The browser CDP adapter is an **optional host adapter** only.
 
-Version: **0.7.0**
+Version: **0.8.0**
 
 ## Layout
 
@@ -44,6 +44,11 @@ src/
 ├─ workflow/           # WorkflowEngine — script orchestration fan-out
 │  ├─ engine.ts        #   ctx.agent/route/routeAgents + per-run route cache
 │  └─ router.ts        #   GraphRouter — heuristic routing over the graph (v0.7)
+├─ plan/               # Graph planning (v0.8)
+│  ├─ types.ts         #   TaskNode/TaskEdge/Plan model
+│  ├─ group.ts         #   GroupPlanner — deterministic DAG from entities
+│  ├─ planner.ts       #   GraphPlanner — engine-backed, LLM refine (fail-soft)
+│  └─ execute.ts       #   planToScript/executePlan — DAG execution on WorkflowEngine
 ├─ events/             # ToolCallWaterfall (deny>ask>allow, fail-closed) + EventBus
 ├─ hooks/              # Claude-Code/Codex hooks bridge (matcher groups, exit-code contract)
 ├─ memory/             # MemoryAdapter port + InMemoryVectorStore
