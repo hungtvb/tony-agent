@@ -21,6 +21,7 @@ import { parseCliArgs } from './args.js'
 import { SessionQueryEngine } from '../query/engine.js'
 import { createQueryTools, createGraphTools } from '../query/plugin.js'
 import { GraphExtractor } from '../query/extractor.js'
+import { createGraphContextBuilder } from '../query/graph-context.js'
 import type { Entry } from '../harness/session/types.js'
 import { resolveProfile, applyProfile, dumpProfile } from '../config/profiles.js'
 import { bold, cyan, dim, green, red, yellow, magenta, icon, table, SPINNER_FRAMES } from './theme.js'
@@ -594,6 +595,29 @@ async function main(): Promise<void> {
         })
       }
       const target = parsed.target ?? parsed.prompt ?? ''
+      // `graph recall <query>` — build the recall block via GraphContextBuilder (v0.6.1)
+      if (target === 'recall') {
+        const recallQuery = (parsed.secondary ?? '').trim()
+        if (!recallQuery) {
+          output.write((options.json ? JSON.stringify({ ok: false, error: 'graph recall: missing query' }) : 'graph recall: missing query (usage: tony-agent graph recall "<query>")') + '\n')
+          process.exitCode = 1
+          engine.close()
+          return
+        }
+        const builder = createGraphContextBuilder(engine)
+        const recall = await builder.build(recallQuery, [])
+        engine.close()
+        if (!recall) {
+          output.write((options.json ? JSON.stringify({ ok: true, hits: [] }) : `graph recall: no hits for "${recallQuery}"`) + '\n')
+          return
+        }
+        if (options.json) {
+          output.write(JSON.stringify({ ok: true, query: recallQuery, hitCount: recall.hitCount, message: recall.message }) + '\n')
+        } else {
+          output.write(recall.message.content + '\n')
+        }
+        return
+      }
       if (!target) {
         output.write((options.json ? JSON.stringify({ ok: false, error: 'graph: missing query' }) : 'graph: missing query (usage: tony-agent graph "<query>" [--mode local|global|naive] [--json])') + '\n')
         process.exitCode = 1
