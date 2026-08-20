@@ -33,6 +33,20 @@ describe('worker-thread code runtime', () => {
     const second = await runtime.run({ language: 'typescript', code: '2 + 2' })
     expect(second.ok).toBe(true)
   })
+
+  it('dynamic import inside the sandbox fails cleanly without killing the worker (dogfood finding — ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING)', async () => {
+    const runtime = createWorkerThreadRuntime()
+    // Top-level dynamic import has no importModuleDynamically callback in the
+    // vm context — before the fix this threw ASYNCHRONOUSLY inside the worker
+    // (process.nextTick path) and crashed the whole process instead of the run.
+    const result = await runtime.run({ language: 'javascript', code: "(async () => { await import('node:fs') })()" })
+    expect(result.ok).toBe(false)
+    // The run must return an error message rather than crash the process.
+    expect(result.error ?? '').toContain('import')
+    // The worker must still be alive and functional for the next run.
+    const next = await runtime.run({ language: 'javascript', code: '1 + 1' })
+    expect(next.ok).toBe(true)
+  })
 })
 
 describe('run_code tool', () => {

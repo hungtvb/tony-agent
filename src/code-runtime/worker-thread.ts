@@ -27,6 +27,14 @@ parentPort.on('message', (msg) => {
       'const __log = (ch) => (...args) => { __logs.push([ch, args.map(String).join(" ")]) }',
       'globalThis.console = { log: __log("out"), error: __log("err") }',
     ].join(String.fromCharCode(10))
+    // NOTE: dynamic import() is blocked at the POLICY layer (validateCodePolicy
+    // pre-flight, see DEFAULT_DENY_PATTERNS). The vm has no
+    // importModuleDynamically callback, so await import(...) would reject
+    // ASYNCHRONOUSLY — outside this try/catch — and crash the worker + the
+    // whole process (ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING, process.nextTick).
+    // Overriding globalThis.import does NOT help (vm dynamic import is syntax,
+    // not a global call) and importModuleDynamically requires
+    // --experimental-vm-modules, so the policy layer is the only safe gate.
     runInContext(setup, context, { timeout: msg.timeoutMs ?? 30000 })
     runInContext(msg.code, context, { timeout: msg.timeoutMs ?? 30000 })
     const logs = runInContext('__logs', context, { timeout: 1000 })

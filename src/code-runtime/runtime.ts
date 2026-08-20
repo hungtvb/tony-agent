@@ -39,6 +39,9 @@ const DEFAULT_DENY_PATTERNS: RegExp[] = [
   /\bprocess\s*\.\s*binding\s*\(/,
   /\bchild_process\b/,
   /\bnode:child_process\b/,
+  /\bimport\s*\(/, // dynamic import — the vm has no importModuleDynamically
+  // callback, so it would reject asynchronously OUTSIDE the worker's
+  // try/catch and crash the whole process (ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING)
 ]
 
 /** Static pre-flight check of a snippet against a policy. Returns issues (empty = allowed). */

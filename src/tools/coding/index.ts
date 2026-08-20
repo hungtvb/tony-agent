@@ -15,8 +15,6 @@ const stringProp = (description: string) => ({ type: 'string', description })
  * pi coding-agent toolset: read/write/edit/ls/grep/find.
  */
 export function createCodingTools(workspace: string): TonyTool<any>[] {
-  const contextFactory = () => ({ sessionId: 'coding', metadata: {} })
-
   const write: TonyTool<{ path: string; content: string }> = {
     name: 'write',
     description: 'Write content to a file inside the workspace (creates or overwrites).',
@@ -147,7 +145,6 @@ export function createCodingTools(workspace: string): TonyTool<any>[] {
     },
   }
 
-  void contextFactory
   return [write, read, edit, ls, grep, find]
 }
 

@@ -95,6 +95,19 @@ describe('WorkflowEngine', () => {
     expect(result.error).toContain('script bug')
   })
 
+  it('ctx.log routes to the configured log sink (dogfood finding — was a silent no-op)', async () => {
+    const logs: string[] = []
+    const { engine } = createSubagentWorkflow({ complete: simpleComplete('x'), log: (m) => logs.push(m) })
+    const run = engine.start(async (ctx) => {
+      ctx.log('step one')
+      ctx.log('step two')
+      return 'done'
+    })
+    const result = await run.result
+    expect(result.stopReason).toBe('completed')
+    expect(logs).toEqual(['step one', 'step two'])
+  })
+
   it('rejects an engine with no provider mounted', () => {
     const registry = new SubagentRegistry()
     expect(() => new WorkflowEngine({ registry, provider: 'in-process' })).toThrow(WorkflowError)

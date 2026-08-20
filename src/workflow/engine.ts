@@ -49,6 +49,8 @@ export interface WorkflowEngineOptions {
   router?: GraphRouter
   /** Session id for lineage-aware routing. */
   sessionId?: string
+  /** Log sink for ctx.log() (default: console.log). */
+  log?: (message: string) => void
 }
 
 /**
@@ -63,6 +65,7 @@ export class WorkflowEngine {
   private readonly maxTotalAgents: number
   private readonly router: GraphRouter | undefined
   private readonly sessionId: string | undefined
+  private readonly log: (message: string) => void
 
   constructor(options: WorkflowEngineOptions) {
     this.registry = options.registry
@@ -70,6 +73,7 @@ export class WorkflowEngine {
     this.maxTotalAgents = options.maxTotalAgents ?? 10
     this.router = options.router
     this.sessionId = options.sessionId
+    this.log = options.log ?? ((message) => console.log(message))
     if (!this.registry.list().includes(this.provider)) {
       throw new WorkflowError('PROVIDER_UNAVAILABLE', `Workflow provider not registered: ${this.provider}`)
     }
@@ -120,7 +124,7 @@ export class WorkflowEngine {
             }
             return results
           },
-          log: () => {},
+          log: (message) => this.log(message),
         }
         const value = await fn(ctx)
         return { value, stopReason: 'completed', agentsStarted }
@@ -157,6 +161,7 @@ export function createSubagentWorkflow(options: {
   tools?: Map<string, import('../types.js').TonyTool>
   systemPrompt?: string
   maxTotalAgents?: number
+  log?: (message: string) => void
 }) {
   const registry = new SubagentRegistry()
   registry.register(createInProcessSubagentProvider({
@@ -164,6 +169,6 @@ export function createSubagentWorkflow(options: {
     tools: options.tools,
     systemPrompt: options.systemPrompt,
   }))
-  const engine = new WorkflowEngine({ registry, provider: 'in-process', maxTotalAgents: options.maxTotalAgents })
+  const engine = new WorkflowEngine({ registry, provider: 'in-process', maxTotalAgents: options.maxTotalAgents, ...(options.log ? { log: options.log } : {}) })
   return { registry, engine }
 }
