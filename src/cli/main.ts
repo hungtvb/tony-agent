@@ -15,6 +15,9 @@ import {
   createCodingTools,
   createRunCodeTool,
   createWorkerThreadRuntime,
+  SkillRegistry,
+  DirectorySkillProvider,
+  createSkillTool,
   ModelCatalog,
   type LLMCompleter,
   type LLMResult,
@@ -182,6 +185,16 @@ async function createTools(dataDir: string, store: SessionStore): Promise<{ regi
   const workspace = process.cwd()
   registry.registerMany(createCodingTools(workspace))
   registry.register(createRunCodeTool(await createWorkerThreadRuntime()))
+  // Skill tool: loads a skill (procedure/guide) by name from the registry.
+  // Skills ship from a directory (default ~/.tony-agent/skills) and give the
+  // model reusable workflows the same way dsh/pi skill loaders do.
+  const skills = new SkillRegistry()
+  try {
+    skills.registerProvider(() => new DirectorySkillProvider(join(dataDir, '..', 'skills')))
+  } catch {
+    // No skills directory yet — the tool still works (returns helpful errors).
+  }
+  registry.register(createSkillTool(skills, { list: true }))
   // Session-query wiring: derived FTS5 index over the session store, exposed
   // to the model as `query:search`.
   try {
