@@ -1,4 +1,5 @@
 export { TonyAgent, defaultAgentLimits, type TonyAgentOptions, type AgentCompletion } from './agent.js'
+export { GraphContextBuilder, createGraphContextBuilder, extractGraphTerms, type GraphContextOptions, type GraphContextBuilderOptions, type GraphRecallHit, type GraphRecallOutput } from './query/graph-context.js'
 export { TonyRuntime, type TonyRuntimeOptions, type TonySession } from './runtime.js'
 export { deriveMessages as entriesToMessages, deriveMessages, assertModelVisibleIsLogged } from './session/log.js'
 export { TonyLLMClient, TonyLLMError, extractJsonToolCalls, messagesToOpenAI, parseProviderJson, parseProviderSse } from './llm/client.js'

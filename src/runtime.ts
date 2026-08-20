@@ -5,6 +5,7 @@ import { deriveMessages, assertModelVisibleIsLogged } from './session/log.js'
 import { ToolRegistry } from './tools/registry.js'
 import type { SessionQueryEngine } from './query/engine.js'
 import { createQueryTools, createGraphTools } from './query/plugin.js'
+import { createGraphContextBuilder, type GraphContextBuilder } from './query/graph-context.js'
 import type { GraphExtractor } from './query/extractor.js'
 import type { LLMCompleter, LLMMessage, PermissionRequest, PermissionResolution, SessionInfo, AgentEvent } from './types.js'
 import type { PageAdapter } from './host/adapter.js'
@@ -23,6 +24,8 @@ export interface TonyRuntimeOptions {
   queryEngine?: SessionQueryEngine
   /** Graph extractor — when present, `query:graph` is registered into the runtime registry (v0.6). */
   graphExtractor?: GraphExtractor
+  /** Graph recall builder — when present, every session's agent gets per-turn recall (v0.6.1). */
+  graphContext?: GraphContextBuilder
 }
 
 export interface TonySession {
@@ -40,9 +43,13 @@ export interface TonySession {
 export class TonyRuntime {
   private readonly sessions = new Map<string, TonySession>()
   private readonly permissions: PermissionPolicy
+  private readonly graphContext: GraphContextBuilder | undefined
 
   constructor(private readonly options: TonyRuntimeOptions) {
     this.permissions = options.permissions ?? new PermissionPolicy()
+    // Auto-create the graph context builder from the query engine when the
+    // caller did not provide one explicitly (default-on, same as query_search).
+    this.graphContext = options.graphContext ?? (options.queryEngine ? createGraphContextBuilder(options.queryEngine) : undefined)
     // Session-query wiring: mount `query:search` into the shared registry.
     if (options.queryEngine) {
       for (const tool of createQueryTools(options.queryEngine, 'query_search')) {
@@ -93,6 +100,7 @@ export class TonyRuntime {
       resolvePermission: this.options.resolvePermission,
       onEvent: this.options.onEvent,
       limits: this.options.limits,
+      ...(this.graphContext ? { graphContext: this.graphContext } : {}),
     })
     const session: TonySession = {
       id: info.id,

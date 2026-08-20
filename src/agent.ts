@@ -160,7 +160,8 @@ export class TonyAgent {
         if (this.graphContext) {
           const recentAssistant = messages.filter((m) => m.role === 'assistant').slice(-2).map((m) => m.content)
           const recall = await this.graphContext.build(prompt, recentAssistant, {
-            sessionId: this.sessionId,
+            // NOTE: no sessionId — auto-recall searches ACROSS sessions so a
+            // newly created session can still retrieve prior knowledge.
             maxMessages: messages.length,
           })
           if (recall) requestMessages = [...messages, recall.message]
