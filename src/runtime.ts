@@ -7,6 +7,7 @@ import type { SessionQueryEngine } from './query/engine.js'
 import { createQueryTools, createGraphTools, createRouteTools } from './query/plugin.js'
 import { createGraphContextBuilder, type GraphContextBuilder } from './query/graph-context.js'
 import type { GraphExtractor } from './query/extractor.js'
+import type { Entry } from './harness/session/types.js'
 import type { LLMCompleter, LLMMessage, PermissionRequest, PermissionResolution, SessionInfo, AgentEvent } from './types.js'
 import type { PageAdapter } from './host/adapter.js'
 
@@ -35,6 +36,8 @@ export interface TonySession {
   ask(prompt: string, signal?: AbortSignal, callbacks?: { onTextDelta?: (delta: string) => void }): ReturnType<TonyAgent['run']>
   history(): LLMMessage[]
   reset(): Promise<void>
+  /** Best-effort graph extraction on close (v0.8). Never throws; warnings via onEvent. */
+  close(): Promise<void>
   rename(name: string): Promise<TonySession>
   branch(name?: string, parentEntryId?: string): Promise<TonySession>
   compact(summary: string, keepRecentEntries?: number): Promise<void>
@@ -136,6 +139,28 @@ export class TonyRuntime {
         const refreshedMessages = deriveMessages(refreshed)
         agent.setHistory(refreshedMessages)
         history.splice(0, history.length, ...refreshedMessages)
+      },
+      close: async () => {
+        if (!this.options.graphExtractor || !this.options.queryEngine) return
+        try {
+          const entries = await this.options.store.readEntries(info.id)
+          const queryEntries: Entry[] = entries.map((entry, index) => ({
+            seq: index + 1,
+            parentId: typeof entry.parentId === 'string' ? index + 1 : 0,
+            timestamp: entry.timestamp,
+            kind: 'message' as const,
+            message: { role: entry.role as 'user' | 'system' | 'assistant', content: entry.content },
+          }))
+          await this.options.queryEngine.syncGraph(info.id, queryEntries, {
+            sessionId: info.id,
+            name: info.name ?? '',
+            createdAt: info.createdAt ?? 0,
+            updatedAt: info.updatedAt ?? 0,
+          }, this.options.graphExtractor)
+        } catch (error) {
+          // Best-effort: extraction failure must never block close or throw.
+          this.options.onEvent?.({ type: 'graph_sync', sessionId: info.id, error: error instanceof Error ? error.message : String(error) } as never)
+        }
       },
     }
     this.sessions.set(info.id, session)
