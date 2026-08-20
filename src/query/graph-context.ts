@@ -138,8 +138,8 @@ export class GraphContextBuilder {
       (h) => `[${h.sessionId}#${h.seq}] (hop ${h.hop}${h.entity ? `, ${h.entity}` : ''}) ${h.snippet}`,
     )
     const content = `Graph recall (cross-session memory):\n${lines.join('\n')}\nUse this as prior context if relevant.`
-    const maxContextMessages = context.maxMessages ?? this.options.maxContextMessages ?? 60
-    const tooLong = context.maxMessages !== undefined ? context.maxMessages > maxContextMessages : false
+    const maxContextMessages = this.options.maxContextMessages ?? 60
+    const tooLong = context.maxMessages !== undefined && context.maxMessages > maxContextMessages
     const message: LLMMessage = tooLong
       ? { role: 'user', content }
       : { role: 'system', content }
