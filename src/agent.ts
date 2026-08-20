@@ -14,6 +14,7 @@ import type {
   ToolContext,
 } from './types.js'
 import { getSiteFromUrl, type PageAdapter } from './host/adapter.js'
+import type { GraphContextBuilder } from './query/graph-context.js'
 
 const DEFAULT_LIMITS: AgentLimits = {
   maxTurns: 24,
@@ -34,6 +35,8 @@ export interface TonyAgentOptions {
   history?: LLMMessage[]
   resolvePermission?: (request: PermissionRequest) => Promise<PermissionResolution> | PermissionResolution
   onEvent?: (event: AgentEvent) => void
+  /** Graph recall builder — when present, injects a per-turn context block (v0.6.1). */
+  graphContext?: GraphContextBuilder
 }
 
 function now(): number { return Date.now() }
@@ -69,6 +72,7 @@ export class TonyAgent {
   private readonly site?: string
   private readonly resolvePermission?: TonyAgentOptions['resolvePermission']
   private readonly onEvent?: TonyAgentOptions['onEvent']
+  private readonly graphContext?: GraphContextBuilder
   private readonly steering: string[] = []
   private activeAbort?: AbortController
   private conversation: LLMMessage[]
@@ -85,6 +89,7 @@ export class TonyAgent {
     this.site = options.site
     this.resolvePermission = options.resolvePermission
     this.onEvent = options.onEvent
+    this.graphContext = options.graphContext
     this.conversation = withSystemPrompt(options.history ?? [], this.systemPrompt)
   }
 
@@ -147,8 +152,22 @@ export class TonyAgent {
           if (steering) messages.push({ role: 'user', content: steering })
         }
 
+        // Graph recall (v0.6.1): inject a per-turn context block when the
+        // builder is present. Ephemeral — the block is passed to the LLM via
+        // a SEPARATE request array so it never lands in the persisted
+        // conversation/history.
+        let requestMessages = messages
+        if (this.graphContext) {
+          const recentAssistant = messages.filter((m) => m.role === 'assistant').slice(-2).map((m) => m.content)
+          const recall = await this.graphContext.build(prompt, recentAssistant, {
+            sessionId: this.sessionId,
+            maxMessages: messages.length,
+          })
+          if (recall) requestMessages = [...messages, recall.message]
+        }
+
         const response = await this.llm.complete({
-          messages,
+          messages: requestMessages,
           tools: this.registry.definitions({ presentation: 'native' }),
           signal: controller.signal,
         }, {
