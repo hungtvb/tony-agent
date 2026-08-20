@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   SkillRegistry,
   loadSkillsFromDirectory,
+  DirectorySkillProvider,
   renderSkillContent,
   type SkillProvider,
 } from '../src/skills/registry.js'
@@ -184,6 +185,61 @@ describe('loadSkillsFromDirectory', () => {
       expect(skills.find((s) => s.name === 'notes')).toBeDefined()
     } finally {
       await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('returns an empty list for a missing directory instead of throwing', async () => {
+    const fs = await import('node:fs/promises')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const dir = path.join(os.tmpdir(), `ta-missing-${Date.now()}`)
+    try {
+      const skills = await loadSkillsFromDirectory(dir)
+      expect(skills).toEqual([])
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('DirectorySkillProvider is safe when the directory does not exist', async () => {
+    const fs = await import('node:fs/promises')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const dir = path.join(os.tmpdir(), `ta-proxy-missing-${Date.now()}`)
+    try {
+      const provider = new DirectorySkillProvider(dir)
+      await expect(provider.list()).resolves.toEqual([])
+      await expect(provider.get('anything')).resolves.toBeUndefined()
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('merges skills across providers with first-provider precedence', async () => {
+    const fs = await import('node:fs/promises')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ta-skills-merge-'))
+    const projectDir = path.join(root, 'project')
+    const globalDir = path.join(root, 'global')
+    await fs.mkdir(projectDir)
+    await fs.mkdir(globalDir)
+    await fs.writeFile(path.join(projectDir, 'shared.md'), '---\nname: shared\ndescription: project version\n---\n# Project body')
+    await fs.writeFile(path.join(projectDir, 'project-only.md'), '---\nname: project-only\ndescription: only here\n---\n# Project only')
+    await fs.writeFile(path.join(globalDir, 'shared.md'), '---\nname: shared\ndescription: global version\n---\n# Global body')
+    await fs.writeFile(path.join(globalDir, 'global-only.md'), '---\nname: global-only\ndescription: only global\n---\n# Global only')
+    try {
+      const registry = new SkillRegistry()
+      registry.registerProvider(() => new DirectorySkillProvider(projectDir, 'project'))
+      registry.registerProvider(() => new DirectorySkillProvider(globalDir, 'global'))
+      const summaryNames = (await registry.list()).map((s) => s.name).sort()
+      expect(summaryNames).toEqual(['global-only', 'project-only', 'shared'])
+      const shared = await registry.get('shared')
+      expect(shared?.content).toContain('# Project body')
+      expect(await registry.get('project-only')).toBeDefined()
+      expect(await registry.get('global-only')).toBeDefined()
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
     }
   })
 })

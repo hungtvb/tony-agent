@@ -1,6 +1,7 @@
 import type { SkillRegistry } from './registry.js'
 import { renderSkillContent, skillToolParameters } from './registry.js'
 import type { ToolResult } from '../types.js'
+import { z } from 'zod'
 
 export interface CreateSkillToolOptions {
   /** List available skills. */
@@ -18,7 +19,7 @@ export function createSkillTool(registry: SkillRegistry, options: CreateSkillToo
     description:
       'Load a skill (procedure/guide) by name and return its full instructions. Skills contain reusable workflows, conventions, and pitfalls. Use when a task matches a known skill.',
     risk: 'read' as const,
-    inputSchema: null as never, // replaced below via register() override — see ToolRegistry typing
+    inputSchema: z.object({ name: z.string().min(1) }).strict(),
     parameters: skillToolParameters(),
     async execute(input: { name: string }, context: { signal?: AbortSignal; sessionId: string }): Promise<ToolResult> {
       const skill = await registry.getForModel(input.name, { signal: context.signal })
