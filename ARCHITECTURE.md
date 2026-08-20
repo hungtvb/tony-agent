@@ -5,7 +5,7 @@ agent loop, LLM transport, tool system, permission policy, durable sessions,
 remote protocol, plugin system, and capability seams are all implemented in
 this repository. The browser CDP adapter is an **optional host adapter** only.
 
-Version: **0.3.0**
+Version: **0.6.1**
 
 ## Layout
 
@@ -19,6 +19,11 @@ src/
 │  └─ auth/            # CredentialStore (0600 real-key persist) + resolve
 ├─ protocol/           # framed CBOR remote protocol
 ├─ server/ client/     # remote session server + client
+├─ query/              # derived indexes (v0.5+): FTS5 session query + Graph layer
+│  ├─ engine.ts        #   SessionQueryEngine — sync/search/trace + searchGraph (local/global/naive)
+│  ├─ graph-context.ts #   GraphContextBuilder — per-turn recall block w/ [session#seq] citations (v0.6.1)
+│  ├─ extractor.ts     #   GraphExtractor — LLM EXTRACT role, fail-soft (v0.6)
+│  └─ plugin.ts        #   query:search / query:graph tools
 ├─ session/            # session lanes store, compaction, log (source of truth)
 ├─ harness/            # pi-mirror Agent (hooks, steering, parallel batches, approval seam)
 │  ├─ agent.ts         #   events, hooks, steering queues, parallel batches
@@ -59,6 +64,12 @@ src/
 3. **Provider swap needs no consumer change.** Capabilities (fs, shell, llm,
    memory, subagents) are Service seams: one active provider per definition;
    consumers wrap the resolved service into model-facing tools.
+4. **Derived indexes never pollute the source of truth.** The session log is
+   the only log; FTS5 search + knowledge-graph data live in a separate derived
+   index DB (`index.db`) and are rebuilt/synced from entries on demand.
+   Graph Context Recall (v0.6.1) is **read-only** over that index and its
+   per-turn system block is **ephemeral** — never persisted into history — so
+   model-visible recall is always reconstructable from the log alone.
 
 ## Plugin & seams (v0.3)
 
