@@ -188,12 +188,13 @@ async function createTools(dataDir: string, store: SessionStore): Promise<{ regi
   // Skill tool: loads a skill (procedure/guide) by name from the registry.
   // Skills ship from a directory (default ~/.tony-agent/skills) and give the
   // model reusable workflows the same way dsh/pi skill loaders do.
+  // Project skills (./.tony/skills) are registered FIRST so they override
+  // the global set on name collisions.
   const skills = new SkillRegistry()
-  try {
-    skills.registerProvider(() => new DirectorySkillProvider(join(dataDir, '..', 'skills')))
-  } catch {
-    // No skills directory yet — the tool still works (returns helpful errors).
-  }
+  const projectSkillsDir = join(process.cwd(), '.tony', 'skills')
+  const globalSkillsDir = join(dataDir, '..', 'skills')
+  skills.registerProvider(() => new DirectorySkillProvider(projectSkillsDir, 'project'))
+  skills.registerProvider(() => new DirectorySkillProvider(globalSkillsDir, 'global'))
   registry.register(createSkillTool(skills, { list: true }))
   // Session-query wiring: derived FTS5 index over the session store, exposed
   // to the model as `query:search`.

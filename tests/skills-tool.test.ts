@@ -46,4 +46,13 @@ describe('createSkillTool', () => {
     expect(parsed.success).toBe(true)
     expect(tool.parameters).toHaveProperty('required')
   })
+
+  it('exposes a real zod inputSchema so execute works through ToolRegistry', () => {
+    const registry = new SkillRegistry()
+    registry.register({ name: 'grep', description: 'Search', content: '# Grep', invocation: { modelInvocable: true, userInvocable: true } })
+    const tool = createSkillTool(registry)
+    const result = tool.inputSchema.safeParse({ name: 'grep' })
+    expect(result.success).toBe(true)
+    expect(tool.inputSchema.safeParse({}).success).toBe(false)
+  })
 })

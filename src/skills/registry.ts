@@ -166,7 +166,13 @@ export async function loadSkillsFromDirectory(
 ): Promise<Skill[]> {
   const fs = await import('node:fs/promises')
   const path = await import('node:path')
-  const entries = await fs.readdir(dir, { withFileTypes: true })
+  let entries
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true })
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw error
+  }
   const skills: Skill[] = []
   for (const entry of entries) {
     options.signal?.throwIfAborted()
