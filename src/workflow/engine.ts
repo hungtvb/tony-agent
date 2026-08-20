@@ -18,6 +18,8 @@ export interface WorkflowContext {
   agent(request: SubagentRequest): Promise<SubagentResult>
   /** Graph routing (v0.7): advisory entity/session/recommendation info. Cached per run. */
   route(query: string, opts?: { sessionId?: string; limit?: number }): Promise<GraphRoute>
+  /** Route-informed fan-out (v0.7): one subagent per top entity, prompt template uses {entity}. */
+  routeAgents(query: string, template: string, opts?: { sessionId?: string; limit?: number }): Promise<SubagentResult[]>
   log(message: string): void
 }
 
@@ -107,6 +109,16 @@ export class WorkflowEngine {
             })
             routeCache.set(key, route)
             return route
+          },
+          routeAgents: async (query, template, routeOpts) => {
+            const route = await ctx.route(query, routeOpts)
+            const results: SubagentResult[] = []
+            for (const entity of route.entities.slice(0, 3)) {
+              const prompt = template.split('{entity}').join(entity.name)
+              const result = await ctx.agent({ prompt })
+              results.push(result)
+            }
+            return results
           },
           log: () => {},
         }

@@ -22,9 +22,15 @@ async function seedEngine() {
 }
 
 /** Empty registry with a dummy in-process provider so PROVIDER_UNAVAILABLE passes. */
-function makeRegistry() {
+function makeRegistry(seen?: string[]) {
   const reg = new SubagentRegistry()
-  reg.register({ name: 'in-process', start: async () => ({ ok: true, output: '' }) as never })
+  reg.register({
+    name: 'in-process',
+    start: async (req: { prompt: string }) => {
+      seen?.push(req.prompt)
+      return { ok: true, output: `done:${req.prompt}` } as never
+    },
+  })
   return reg
 }
 
@@ -76,5 +82,24 @@ describe('WorkflowEngine ctx.route()', () => {
     // engine wraps script errors into run.error
     expect(result.stopReason).toBe('error')
     expect(result.error).toContain('ROUTER_UNAVAILABLE')
+  })
+
+  it('routeAgents fans out one subagent per top entity', async () => {
+    const { engine, dir } = await seedEngine()
+    const seen: string[] = []
+    try {
+      const wf = new WorkflowEngine({ registry: makeRegistry(seen), router: new GraphRouter(engine) })
+      const run = wf.start(async (ctx) => {
+        const results = await ctx.routeAgents('FTS5', 'summarize {entity}')
+        return results.length
+      })
+      const result = await run.result
+      expect(result.stopReason).toBe('completed')
+      expect(result.value).toBe(1) // FTS5 only (query-matched entity)
+      expect(seen).toEqual(['summarize FTS5'])
+    } finally {
+      engine.close()
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 })
