@@ -19,7 +19,8 @@ import {
 } from '../index.js'
 import { parseCliArgs } from './args.js'
 import { SessionQueryEngine } from '../query/engine.js'
-import { createQueryTools, createGraphTools, createRouteTools } from '../query/plugin.js'
+import { createQueryTools, createGraphTools, createRouteTools, formatGraphRoute } from '../query/plugin.js'
+import { GraphRouter } from '../workflow/router.js'
 import { GraphExtractor } from '../query/extractor.js'
 import { createGraphContextBuilder } from '../query/graph-context.js'
 import type { Entry } from '../harness/session/types.js'
@@ -618,6 +619,24 @@ async function main(): Promise<void> {
           output.write(JSON.stringify({ ok: true, query: recallQuery, hitCount: recall.hitCount, message: recall.message }) + '\n')
         } else {
           output.write(recall.message.content + '\n')
+        }
+        return
+      }
+      // `graph route <query>` — GraphRouter advisory routing (v0.7)
+      if (target === 'route') {
+        const routeQuery = (parsed.secondary ?? '').trim()
+        if (!routeQuery) {
+          output.write((options.json ? JSON.stringify({ ok: false, error: 'graph route: missing query' }) : 'graph route: missing query (usage: tony-agent graph route "<query>" [--json])') + '\n')
+          process.exitCode = 1
+          engine.close()
+          return
+        }
+        const route = new GraphRouter(engine).route(routeQuery)
+        engine.close()
+        if (options.json) {
+          output.write(JSON.stringify({ ok: true, query: routeQuery, entities: route.entities, relations: route.relations, sessions: route.sessions, recommended: route.recommended ?? null }) + '\n')
+        } else {
+          output.write(formatGraphRoute(route) + '\n')
         }
         return
       }

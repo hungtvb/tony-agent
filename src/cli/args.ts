@@ -69,8 +69,8 @@ export function parseCliArgs(argv: string[]): ParsedCli {
     parsed.secondary = positional[1]
   }
   if (parsed.command === 'graph') {
-    // `graph recall <query>` — target = 'recall', query = secondary
-    if (parsed.target === 'recall') parsed.secondary = positional[1]?.trim()
+    // `graph recall <query>` / `graph route <query>` — target = subcommand, query = secondary
+    if (parsed.target === 'recall' || parsed.target === 'route') parsed.secondary = positional[1]?.trim()
   }
   if (parsed.command === 'prompt' || parsed.command === 'steer' || parsed.command === 'set' || parsed.command === 'client' || parsed.command === 'search') {
     parsed.prompt = positional.join(' ')
