@@ -5,7 +5,7 @@ agent loop, LLM transport, tool system, permission policy, durable sessions,
 remote protocol, plugin system, and capability seams are all implemented in
 this repository. The browser CDP adapter is an **optional host adapter** only.
 
-Version: **0.6.1**
+Version: **0.7.0**
 
 ## Layout
 
@@ -42,6 +42,8 @@ src/
 ├─ code-runtime/       # run_code transport + worker-thread runtime (empty vm context sandbox)
 ├─ subagent/           # SubagentRegistry + in-process provider + delegate_subagent tool
 ├─ workflow/           # WorkflowEngine — script orchestration fan-out
+│  ├─ engine.ts        #   ctx.agent/route/routeAgents + per-run route cache
+│  └─ router.ts        #   GraphRouter — heuristic routing over the graph (v0.7)
 ├─ events/             # ToolCallWaterfall (deny>ask>allow, fail-closed) + EventBus
 ├─ hooks/              # Claude-Code/Codex hooks bridge (matcher groups, exit-code contract)
 ├─ memory/             # MemoryAdapter port + InMemoryVectorStore
