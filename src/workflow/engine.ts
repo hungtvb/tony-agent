@@ -1,4 +1,5 @@
 import { SubagentRegistry, SubagentRequest, SubagentResult, createInProcessSubagentProvider } from '../subagent/registry.js'
+import type { GraphRouter, GraphRoute } from './router.js'
 
 /** Thrown when a script violates workflow limits/contracts. */
 export class WorkflowError extends Error {
@@ -15,6 +16,8 @@ export class WorkflowError extends Error {
 /** Context handed to a workflow script. */
 export interface WorkflowContext {
   agent(request: SubagentRequest): Promise<SubagentResult>
+  /** Graph routing (v0.7): advisory entity/session/recommendation info. Cached per run. */
+  route(query: string, opts?: { sessionId?: string; limit?: number }): Promise<GraphRoute>
   log(message: string): void
 }
 
@@ -40,6 +43,10 @@ export interface WorkflowEngineOptions {
   provider?: string
   /** Max child agents a single run may start. */
   maxTotalAgents?: number
+  /** Optional GraphRouter — enables ctx.route() (v0.7). */
+  router?: GraphRouter
+  /** Session id for lineage-aware routing. */
+  sessionId?: string
 }
 
 /**
@@ -52,11 +59,15 @@ export class WorkflowEngine {
   private readonly registry: SubagentRegistry
   private readonly provider: string
   private readonly maxTotalAgents: number
+  private readonly router: GraphRouter | undefined
+  private readonly sessionId: string | undefined
 
   constructor(options: WorkflowEngineOptions) {
     this.registry = options.registry
     this.provider = options.provider ?? 'in-process'
     this.maxTotalAgents = options.maxTotalAgents ?? 10
+    this.router = options.router
+    this.sessionId = options.sessionId
     if (!this.registry.list().includes(this.provider)) {
       throw new WorkflowError('PROVIDER_UNAVAILABLE', `Workflow provider not registered: ${this.provider}`)
     }
@@ -66,6 +77,7 @@ export class WorkflowEngine {
     let cancelled = false
     let cancelReason = ''
     let agentsStarted = 0
+    const routeCache = new Map<string, GraphRoute>()
 
     const runPromise = (async (): Promise<WorkflowResult> => {
       try {
@@ -83,6 +95,18 @@ export class WorkflowEngine {
             }
             agentsStarted += 1
             return this.registry.start(this.provider, request)
+          },
+          route: async (query, routeOpts) => {
+            if (!this.router) throw new WorkflowError('ROUTER_UNAVAILABLE', 'ROUTER_UNAVAILABLE: no GraphRouter configured')
+            const key = `${query}|${routeOpts?.sessionId ?? this.sessionId ?? ''}`
+            const cached = routeCache.get(key)
+            if (cached) return cached
+            const route = this.router.route(query, {
+              sessionId: routeOpts?.sessionId ?? this.sessionId,
+              ...(routeOpts?.limit ? { limit: routeOpts.limit } : {}),
+            })
+            routeCache.set(key, route)
+            return route
           },
           log: () => {},
         }
