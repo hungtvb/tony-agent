@@ -21,6 +21,7 @@ import { parseCliArgs } from './args.js'
 import { SessionQueryEngine } from '../query/engine.js'
 import { createQueryTools, createGraphTools, createRouteTools, formatGraphRoute } from '../query/plugin.js'
 import { GraphRouter } from '../workflow/router.js'
+import { GraphPlanner } from '../plan/planner.js'
 import { GraphExtractor } from '../query/extractor.js'
 import { createGraphContextBuilder } from '../query/graph-context.js'
 import type { Entry } from '../harness/session/types.js'
@@ -637,6 +638,31 @@ async function main(): Promise<void> {
           output.write(JSON.stringify({ ok: true, query: routeQuery, entities: route.entities, relations: route.relations, sessions: route.sessions, recommended: route.recommended ?? null }) + '\n')
         } else {
           output.write(formatGraphRoute(route) + '\n')
+        }
+        return
+      }
+      // `graph plan <goal>` — GraphPlanner DAG (v0.8), deterministic (no LLM)
+      if (target === 'plan') {
+        const goal = (parsed.secondary ?? '').trim()
+        if (!goal) {
+          output.write((options.json ? JSON.stringify({ ok: false, error: 'graph plan: missing goal' }) : 'graph plan: missing goal (usage: tony-agent graph plan "<goal>" [--json])') + '\n')
+          process.exitCode = 1
+          engine.close()
+          return
+        }
+        const planner = new GraphPlanner({ engine })
+        const plan = await planner.plan(goal)
+        engine.close()
+        if (options.json) {
+          output.write(JSON.stringify({ ok: true, goal, plan }) + '\n')
+        } else {
+          output.write('Plan for: ' + goal + '\n')
+          for (const task of plan.tasks) {
+            const scope = task.entityScope.length > 0 ? ' <' + task.entityScope.join('|') + '>' : ''
+            const deps = task.dependsOn.length > 0 ? ' (after ' + task.dependsOn.join(', ') + ')' : ''
+            output.write('  ' + task.id + ' ' + task.title + scope + deps + '\n')
+          }
+          if (plan.tasks.length === 0) output.write('  (no tasks — no graph context for this goal)\n')
         }
         return
       }

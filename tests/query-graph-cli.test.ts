@@ -31,6 +31,13 @@ describe('graph CLI command', () => {
     expect(parsed.target).toBe('recall')
     expect(parsed.secondary).toBe('FTS5')
   })
+
+  it('parses graph plan with secondary goal', () => {
+    const parsed = parseCliArgs(['graph', 'plan', 'build search'])
+    expect(parsed.command).toBe('graph')
+    expect(parsed.target).toBe('plan')
+    expect(parsed.secondary).toBe('build search')
+  })
   it('parses graph route with secondary query', () => {
     const parsed = parseCliArgs(['graph', 'route', 'FTS5'])
     expect(parsed.command).toBe('graph')
