@@ -4,6 +4,7 @@ import { deriveMessages } from '../session/log.js'
 import type { TonyTool } from '../types.js'
 import type { SimpleMessage, SimpleResult, SimpleStreamOptions, ToolDefinition } from '../llm/model.js'
 import type { GraphContextBuilder } from '../query/graph-context.js'
+import type { PermissionRequest, PermissionResolution } from '../types.js'
 
 /** One subagent delegation request. */
 export interface SubagentRequest {
@@ -48,6 +49,8 @@ export interface InProcessSubagentOptions {
   loadSessionEntries?: SessionEntriesLoader
   /** Graph recall builder — forwarded to every child Agent (v0.6.1). */
   graphContext?: GraphContextBuilder
+  /** Permission resolution callback — forwarded so children honor the parent's policy (security). */
+  resolvePermission?: (request: PermissionRequest) => Promise<PermissionResolution> | PermissionResolution
 }
 
 /**
@@ -72,6 +75,7 @@ export function createInProcessSubagentProvider(options: InProcessSubagentOption
         sessionId: childSessionId,
         systemPrompt: options.systemPrompt,
         maxToolCalls: request.maxToolCalls ?? 30,
+        ...(options.resolvePermission ? { resolvePermission: options.resolvePermission } : {}),
         ...(options.graphContext ? { graphContext: options.graphContext } : {}),
       })
       let resumed = false

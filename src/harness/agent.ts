@@ -166,7 +166,8 @@ export class Agent {
   }
 
   followUp(generator: () => string): void {
-    this.pendingQueue.push({ text: generator(), message: AgentMessage.from('user', { content: generator() }) })
+    const text = generator() // capture once — generators may be side-effectful
+    this.pendingQueue.push({ text, message: AgentMessage.from('user', { content: text }) })
   }
 
   abort(): void {

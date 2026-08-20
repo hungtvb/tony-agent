@@ -57,6 +57,32 @@ describe('TonyRuntime session close → graph extract', () => {
     expect(entities.some((e) => e.name === 'FTS5')).toBe(true)
   })
 
+  it('double close extracts exactly once (idempotent)', async () => {
+    let extractCalls = 0
+    const extractor = new GraphExtractor({
+      async complete() {
+        extractCalls += 1
+        return {
+          text: JSON.stringify({ entities: [{ name: 'ONCE', type: 'tech' }], relations: [] }),
+          toolCalls: [],
+        }
+      },
+    } as unknown as LLMCompleter)
+    const runtime = new TonyRuntime({
+      store,
+      llm: stubLlm,
+      registry: new ToolRegistry(),
+      permissions: new PermissionPolicy(),
+      queryEngine: engine,
+      graphExtractor: extractor,
+    })
+    const session = await runtime.createSession('close-once')
+    await store.append(session.id, { role: 'user', content: 'once only' })
+    await session.close()
+    await session.close() // second close must not re-run extraction
+    expect(extractCalls).toBe(1)
+  })
+
   it('never throws when extraction fails', async () => {
     const extractor = new GraphExtractor({
       async complete() {

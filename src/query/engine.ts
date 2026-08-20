@@ -332,8 +332,8 @@ export class SessionQueryEngine {
     const seen = new Map<string, GraphHit>()
     for (const name of names) {
       const rows = this.db
-        .prepare(`SELECT session_id, seq, body FROM entries_fts WHERE body LIKE @name ${sessionFilter} ORDER BY seq LIMIT @lim`)
-        .all({ name: `%${name}%`, sid: options.sessionId ?? '', lim: 5 }) as Array<{ session_id: string; seq: number; body: string }>
+        .prepare(`SELECT session_id, seq, body FROM entries_fts WHERE body MATCH @match ${sessionFilter} ORDER BY seq LIMIT @lim`)
+        .all({ match: `"${name.replace(/"/g, '""')}"`, sid: options.sessionId ?? '', lim: 5 }) as Array<{ session_id: string; seq: number; body: string }>
       for (const row of rows) {
         const graphHit: GraphHit = {
           sessionId: row.session_id,
@@ -364,8 +364,8 @@ export class SessionQueryEngine {
     const seen = new Map<string, GraphHit>()
     for (const term of terms) {
       const rows = this.db
-        .prepare(`SELECT session_id, seq, body FROM entries_fts WHERE body LIKE @term ${sessionFilter} ORDER BY seq LIMIT @lim`)
-        .all({ term: `%${term}%`, sid: options.sessionId ?? '', lim: 5 }) as Array<{ session_id: string; seq: number; body: string }>
+        .prepare(`SELECT session_id, seq, body FROM entries_fts WHERE body MATCH @match ${sessionFilter} ORDER BY seq LIMIT @lim`)
+        .all({ match: `"${term.replace(/"/g, '""')}"`, sid: options.sessionId ?? '', lim: 5 }) as Array<{ session_id: string; seq: number; body: string }>
       for (const row of rows) {
         const key = `${row.session_id}:${row.seq}`
         if (!seen.has(key)) seen.set(key, { sessionId: row.session_id, seq: row.seq, snippet: makeSnippet(row.body, term), entity: term, hop: 0 })

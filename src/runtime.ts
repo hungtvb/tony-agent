@@ -47,6 +47,8 @@ export class TonyRuntime {
   private readonly sessions = new Map<string, TonySession>()
   private readonly permissions: PermissionPolicy
   private readonly graphContext: GraphContextBuilder | undefined
+  /** Close-once guard (per session object) — double close must not re-extract. */
+  private readonly closedSessions = new WeakSet<object>()
 
   constructor(private readonly options: TonyRuntimeOptions) {
     this.permissions = options.permissions ?? new PermissionPolicy()
@@ -142,6 +144,8 @@ export class TonyRuntime {
       },
       close: async () => {
         if (!this.options.graphExtractor || !this.options.queryEngine) return
+        if (this.closedSessions.has(session)) return // idempotent — double close must not re-extract
+        this.closedSessions.add(session)
         try {
           const entries = await this.options.store.readEntries(info.id)
           const queryEntries: Entry[] = entries.map((entry, index) => ({
