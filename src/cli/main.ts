@@ -160,6 +160,9 @@ const REPL_HELP_TEXT = [
       ['/lanes', 'List work lanes'],
       ['/profile', 'Show current config profile'],
       ['/compact', 'Compact the session log'],
+      ['/usage', 'Show token usage + cost estimate (this session)'],
+      ['/skills', 'List loaded skills'],
+      ['/workspace', 'Show cwd + data-dir + skill dirs'],
       ['/exit', 'Quit the REPL'],
     ],
     { widths: [10, 34] },
@@ -171,7 +174,7 @@ function printHelp(): void {
   output.write(HELP_TEXT + '\n')
 }
 
-async function createTools(dataDir: string, store: SessionStore): Promise<{ registry: ToolRegistry; adapter: MemoryPageAdapter }> {
+async function createTools(dataDir: string, store: SessionStore): Promise<{ registry: ToolRegistry; adapter: MemoryPageAdapter; skills: SkillRegistry; skillsDirs: { project: string; global: string } }> {
   const adapter = new MemoryPageAdapter({
     url: 'https://tony.local/docs',
     title: 'Tony Agent local fixture',
@@ -223,7 +226,7 @@ async function createTools(dataDir: string, store: SessionStore): Promise<{ regi
     // Index is derived and best-effort — a failure must not brick the CLI.
     console.error('query:search unavailable: ' + (error instanceof Error ? error.message : String(error)))
   }
-  return { registry, adapter }
+  return { registry, adapter, skills, skillsDirs: { project: projectSkillsDir, global: globalSkillsDir } }
 }
 
 async function resolvePermission(request: PermissionRequest, nonInteractive: boolean, allowRisky: boolean, rl?: ReturnType<typeof createInterface>): Promise<PermissionResolution> {
@@ -760,7 +763,7 @@ async function main(): Promise<void> {
   const interactive = !options.prompt
   const store = new SessionStore(options.dataDir)
   await store.initialize()
-  const { registry, adapter } = await createTools(options.dataDir, store)
+  const { registry, adapter, skills, skillsDirs } = await createTools(options.dataDir, store)
   let llm: LLMCompleter
   let offline = false
   if (options.baseUrl === 'offline') {
@@ -789,37 +792,55 @@ async function main(): Promise<void> {
     limits: options.maxTurns ? { maxTurns: options.maxTurns, ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}) } : undefined,
   })
   const session = options.session ? await runtime.openSession(options.session) : await runtime.createSession('Tony session')
-  if (options.json) output.write(JSON.stringify({ mode: offline ? 'offline' : 'provider', session: session.id }) + '\n')
+    if (options.json) output.write(JSON.stringify({ mode: offline ? 'offline' : 'provider', session: session.id }) + '\n')
 
-  const ask = async (prompt: string) => {
-    if (options.json) {
-      const completion = await session.ask(prompt)
-      output.write(JSON.stringify({ session: session.id, text: completion.text, turns: completion.turns, toolCalls: completion.toolCalls }) + '\n')
-      return
-    }
-    output.write('\n' + dim(icon.user + ' You: ') + bold(prompt) + '\n' + cyan(icon.agent + ' Tony: '))
-    // Spinner while the agent thinks (only when streaming is off and TTY)
-    let spinner: ReturnType<typeof setInterval> | undefined
-    let frame = 0
-    if (!options.stream && process.stdout.isTTY) {
-      spinner = setInterval(() => {
-        process.stdout.write('\r' + magenta(SPINNER_FRAMES[frame % SPINNER_FRAMES.length]!) + ' ')
-        frame += 1
-      }, 80)
-    }
-    try {
-      const completion = await session.ask(prompt, undefined, { onTextDelta: (delta) => output.write(delta) })
-      if (completion.text && !options.stream) output.write(completion.text)
-      output.write(dim('\n[' + completion.turns + ' turn(s), ' + completion.toolCalls + ' tool call(s)]') + '\n')
-    } finally {
-      if (spinner) {
-        clearInterval(spinner)
-        process.stdout.write('\r' + ' '.repeat(2) + '\r')
+    // Session-accumulated token usage (prompt/completion/total across all asks).
+    let usageTotal = { prompt: 0, completion: 0, total: 0 }
+    let usageLast: { prompt: number; completion: number; total: number } | undefined
+
+    const ask = async (prompt: string) => {
+      if (options.json) {
+        const completion = await session.ask(prompt)
+        output.write(JSON.stringify({ session: session.id, text: completion.text, turns: completion.turns, toolCalls: completion.toolCalls }) + '\n')
+        return
+      }
+      output.write('\n' + dim(icon.user + ' You: ') + bold(prompt) + '\n' + cyan(icon.agent + ' Tony: '))
+      // Spinner while the agent thinks (only when streaming is off and TTY)
+      let spinner: ReturnType<typeof setInterval> | undefined
+      let frame = 0
+      if (!options.stream && process.stdout.isTTY) {
+        spinner = setInterval(() => {
+          process.stdout.write('\r' + magenta(SPINNER_FRAMES[frame % SPINNER_FRAMES.length]!) + ' ')
+          frame += 1
+        }, 80)
+      }
+      try {
+        const completion = await session.ask(prompt, undefined, { onTextDelta: (delta) => output.write(delta) })
+        if (completion.text && !options.stream) output.write(completion.text)
+        output.write(dim('\n[' + completion.turns + ' turn(s), ' + completion.toolCalls + ' tool call(s)]') + '\n')
+        const u = completion.usage
+        if (u) {
+          const row = {
+            prompt: u.promptTokens ?? 0,
+            completion: u.completionTokens ?? 0,
+            total: u.totalTokens ?? ((u.promptTokens ?? 0) + (u.completionTokens ?? 0)),
+          }
+          usageLast = row
+          usageTotal = {
+            prompt: usageTotal.prompt + row.prompt,
+            completion: usageTotal.completion + row.completion,
+            total: usageTotal.total + row.total,
+          }
+        }
+      } finally {
+        if (spinner) {
+          clearInterval(spinner)
+          process.stdout.write('\r' + ' '.repeat(2) + '\r')
+        }
       }
     }
-  }
 
-  const repl: Record<string, () => Promise<boolean>> = {
+    const repl: Record<string, () => Promise<boolean>> = {
     '/help': async () => {
       output.write(REPL_HELP_TEXT + '\n')
       return false
@@ -878,6 +899,50 @@ async function main(): Promise<void> {
       const entries = await store.readEntries(session.id)
       await store.compact(session.id, 'compacted ' + entries.length + ' entries', [])
       output.write('Session compacted (' + entries.length + ' entries).\n')
+      return false
+    },
+    '/usage': async () => {
+      if (!usageLast) {
+        output.write(dim('No usage recorded yet — run a prompt first.\n'))
+        return false
+      }
+      // Rough per-token rates (ESTIMATE — adjust per provider/model).
+      const promptRate = 0.15 / 1_000_000   // $ per prompt token
+      const completionRate = 0.60 / 1_000_000 // $ per completion token
+      const fmt = (n: number) => String(Math.round(n))
+      const cents = (prompt: number, completion: number) =>
+        ((prompt * promptRate) + (completion * completionRate)) * 100
+      const lines = [
+        'usage (this session):',
+        '  last run:  ' + fmt(usageLast.prompt) + ' prompt + ' + fmt(usageLast.completion) + ' completion = ' + fmt(usageLast.total) + ' tokens  (~$' + cents(usageLast.prompt, usageLast.completion).toFixed(4) + ')',
+        '  total:     ' + fmt(usageTotal.prompt) + ' prompt + ' + fmt(usageTotal.completion) + ' completion = ' + fmt(usageTotal.total) + ' tokens  (~$' + cents(usageTotal.prompt, usageTotal.completion).toFixed(4) + ')',
+        dim('  (cost is an ESTIMATE at $0.15/M prompt, $0.60/M completion)'),
+      ]
+      output.write(lines.join('\n') + '\n')
+      return false
+    },
+    '/skills': async () => {
+      const all = await skills.list({ surface: 'user' })
+      if (all.length === 0) {
+        output.write(dim('(no skills loaded)\n'))
+        return false
+      }
+      const lines = ['skills:']
+      for (const s of all) {
+        lines.push('  ' + s.name + '  ' + (s.description ? dim(s.description.slice(0, 80)) : ''))
+      }
+      output.write(lines.join('\n') + '\n')
+      return false
+    },
+    '/workspace': async () => {
+      const lines = [
+        'workspace:',
+        '  cwd:       ' + process.cwd(),
+        '  data-dir:  ' + options.dataDir,
+        '  skills:    ' + skillsDirs.project + ' (project)',
+        '             ' + skillsDirs.global + ' (global)',
+      ]
+      output.write(lines.join('\n') + '\n')
       return false
     },
     '/exit': async () => true,

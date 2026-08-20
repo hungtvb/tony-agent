@@ -138,6 +138,8 @@ export interface AgentRunResult {
   toolCalls: number
   events: AgentEvent[]
   messages: LLMMessage[]
+  /** Aggregated token usage across every LLM call in the run (optional). */
+  usage?: LLMUsage
 }
 
 export interface BrowserTab {
