@@ -19,11 +19,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
       - run: npm run build
-      # Terminal-UI tests: spawn the built CLI under a pseudo-TTY (`script`)
-      # and assert the REPL surface (banner, /help table, /history, exit).
-      - run: npx vitest run tests/cli-repl-ui.test.ts
+      # Terminal-UI tests spawn the BUILT CLI (dist/) under a pseudo-TTY —
+      # must run AFTER build. Packaging test reads dist/cli/main.js too.
+      - run: npm test
+      - run: npx vitest run tests/cli-repl-ui.test.ts tests/cli-packaging.test.ts
 
   coverage:
     runs-on: ubuntu-latest
