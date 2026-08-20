@@ -84,4 +84,29 @@ describe('REPL UI (terminal surface)', () => {
     expect(code).not.toBeNull()
     expect(stdout).not.toContain('Error')
   })
+
+  it('/usage shows a friendly message before any run', async () => {
+    const { stdout } = await runRepl('/usage\n/exit\n')
+    expect(stdout).toContain('No usage recorded yet')
+  })
+
+  it('/usage is listed in the help table', async () => {
+    const { stdout } = await runRepl('/help\n/exit\n')
+    expect(stdout).toContain('/usage')
+    expect(stdout).toContain('token usage')
+  })
+
+  it('/skills lists loaded skills (or empty message)', async () => {
+    const { stdout } = await runRepl('/skills\n/exit\n')
+    // data-dir is a temp dir with no skills — either empty message or a list
+    expect(stdout).toMatch(/(no skills loaded)|skills:/)
+  })
+
+  it('/workspace shows cwd and data-dir', async () => {
+    const { stdout } = await runRepl('/workspace\n/exit\n')
+    expect(stdout).toContain('workspace:')
+    expect(stdout).toContain('cwd:')
+    expect(stdout).toContain('data-dir:')
+    expect(stdout).toContain('skills:')
+  })
 })

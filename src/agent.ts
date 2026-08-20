@@ -8,6 +8,7 @@ import type {
   BrowserTab,
   LLMCompleter,
   LLMMessage,
+  LLMUsage,
   PermissionRequest,
   PermissionResolution,
   ToolCall,
@@ -77,6 +78,8 @@ export class TonyAgent {
   private activeAbort?: AbortController
   private conversation: LLMMessage[]
   private running = false
+  /** Aggregated LLM usage across the current run. */
+  private usage?: LLMUsage
 
   constructor(options: TonyAgentOptions) {
     this.llm = options.llm
@@ -127,6 +130,8 @@ export class TonyAgent {
   ): Promise<AgentCompletion> {
     if (this.running) throw new Error('Tony Agent is already running a turn')
     this.running = true
+    this.usage = undefined
+    const usage: LLMUsage = {}
     const events: AgentEvent[] = []
     const emit = (event: AgentEvent) => { events.push(event); this.onEvent?.(event) }
     const controller = new AbortController()
@@ -177,13 +182,19 @@ export class TonyAgent {
             emit({ type: 'message_update', sessionId: this.sessionId, delta, timestamp: now() })
           },
         })
+        if (response.usage) {
+          const u = response.usage
+          usage.promptTokens = (usage.promptTokens ?? 0) + (u.promptTokens ?? 0)
+          usage.completionTokens = (usage.completionTokens ?? 0) + (u.completionTokens ?? 0)
+          usage.totalTokens = (usage.totalTokens ?? 0) + (u.totalTokens ?? 0)
+        }
         finalText = response.text
         messages.push({ role: 'assistant', content: response.text, ...(response.toolCalls.length > 0 ? { toolCalls: response.toolCalls } : {}) })
 
         if (response.toolCalls.length === 0) {
           emit({ type: 'turn_end', sessionId: this.sessionId, turn: turns, timestamp: now() })
           emit({ type: 'agent_end', sessionId: this.sessionId, text: finalText, timestamp: now() })
-          const result = { sessionId: this.sessionId, text: finalText, turns, toolCalls: totalToolCalls, events, messages: cloneMessages(messages) }
+          const result = { sessionId: this.sessionId, text: finalText, turns, toolCalls: totalToolCalls, events, messages: cloneMessages(messages), ...(usage.promptTokens !== undefined || usage.completionTokens !== undefined ? { usage } : {}) }
           this.conversation = cloneMessages(messages)
           return result
         }
@@ -256,7 +267,7 @@ export class TonyAgent {
 
       finalText = `Stopped: maximum turn limit (${this.limits.maxTurns}) reached.`
       emit({ type: 'agent_end', sessionId: this.sessionId, text: finalText, timestamp: now() })
-      const result = { sessionId: this.sessionId, text: finalText, turns, toolCalls: totalToolCalls, events, messages: cloneMessages(messages) }
+      const result = { sessionId: this.sessionId, text: finalText, turns, toolCalls: totalToolCalls, events, messages: cloneMessages(messages), ...(usage.promptTokens !== undefined || usage.completionTokens !== undefined ? { usage } : {}) }
       this.conversation = cloneMessages(messages)
       return result
     } catch (error) {
