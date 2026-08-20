@@ -19,7 +19,7 @@ import {
 } from '../index.js'
 import { parseCliArgs } from './args.js'
 import { SessionQueryEngine } from '../query/engine.js'
-import { createQueryTools, createGraphTools } from '../query/plugin.js'
+import { createQueryTools, createGraphTools, createRouteTools } from '../query/plugin.js'
 import { GraphExtractor } from '../query/extractor.js'
 import { createGraphContextBuilder } from '../query/graph-context.js'
 import type { Entry } from '../harness/session/types.js'
@@ -158,6 +158,9 @@ async function createTools(dataDir: string, store: SessionStore): Promise<{ regi
       if (!registry.has(tool.name)) registry.register(tool)
     }
     for (const tool of createGraphTools(engine, 'query_graph')) {
+      if (!registry.has(tool.name)) registry.register(tool)
+    }
+    for (const tool of createRouteTools(engine, 'query_route')) {
       if (!registry.has(tool.name)) registry.register(tool)
     }
   } catch (error) {

@@ -6,6 +6,7 @@ import type { TonyTool, ToolContext, ToolResult } from '../types.js'
 import type { SessionQueryEngine } from './engine.js'
 import type { EventHit, SearchResult } from './types.js'
 import type { GraphSearchOptions, GraphSearchResult } from './engine.js'
+import { GraphRouter, type GraphRoute } from '../workflow/router.js'
 
 /** Capability seam id for knowledge-graph retrieval (v0.6). */
 export const GRAPH_SERVICE_ID = 'query:graph'
@@ -206,6 +207,76 @@ function formatSessionHits(result: SearchResult<{ sessionId: string; matchCount:
     (hit) => `[${hit.sessionId} x${hit.matchCount}] ${hit.bestEvent?.snippet ?? ''}`,
   )
   return `Found ${result.hits.length} matching session${result.hits.length === 1 ? '' : 's'}:\n${lines.join('\n')}`
+}
+
+/** Route tool (v0.7): graph-informed routing for the model. */
+export function createRouteTools(engine: SessionQueryEngine, toolName = 'query:route'): TonyTool[] {
+  const router = new GraphRouter(engine)
+  const tool: TonyTool = {
+    name: toolName,
+    description:
+      'Graph routing over session history: maps a task/question to the graph entities in scope, the sessions that mention them, and an optional recommended session to continue (lineage-aware). Advisory — use it to decide which session/context to continue or which subagents to fan out.',
+    risk: 'read' as const,
+    inputSchema: undefined as never,
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Task or question to route' },
+        sessionId: { type: 'string', description: 'Current session id (enables lineage-aware recommendation)' },
+        limit: { type: 'number', description: 'Max sessions to surface (default 5, max 20)' },
+      },
+      required: ['query'],
+      additionalProperties: false,
+    },
+    async execute(input: unknown): Promise<ToolResult> {
+      try {
+        const request = (input ?? {}) as { query?: string; sessionId?: string; limit?: number }
+        if (typeof request.query !== 'string' || request.query.trim() === '') {
+          return { content: 'query:route requires a non-empty query', isError: true }
+        }
+        const route = router.route(request.query, {
+          sessionId: request.sessionId,
+          ...(request.limit ? { limit: request.limit } : {}),
+        })
+        return { content: formatGraphRoute(route) }
+      } catch (error) {
+        return {
+          content: `query:route failed: ${error instanceof Error ? error.message : String(error)}`,
+          isError: true,
+        }
+      }
+    },
+  }
+  return [tool]
+}
+
+/** Shared formatter: entities + sessions + recommendation (used by tool + CLI). */
+export function formatGraphRoute(route: GraphRoute): string {
+  if (route.entities.length === 0 && route.sessions.length === 0) {
+    return `No route candidates for "${route.query}"`
+  }
+  const parts: string[] = []
+  if (route.entities.length > 0) {
+    parts.push(
+      `Entities: ${route.entities.map((e) => `${e.name} (${e.type}, hop ${e.hop}, ${e.sessions.length} session${e.sessions.length === 1 ? '' : 's'})`).join(', ')}`,
+    )
+  }
+  if (route.relations.length > 0) {
+    parts.push(
+      `Relations: ${route.relations.map((rel) => `${rel.source} -${rel.kind}-> ${rel.target}`).join(', ')}`,
+    )
+  }
+  if (route.sessions.length > 0) {
+    parts.push(
+      `Sessions: ${route.sessions.map((s) => `[${s.sessionId} x${s.matchCount}]${s.preview ? ` ${s.preview}` : ''}`).join('\n')}`,
+    )
+  }
+  if (route.recommended) {
+    parts.push(`Recommended: continue ${route.recommended.continueSessionId} — ${route.recommended.reason}`)
+  } else {
+    parts.push('Recommended: none')
+  }
+  return parts.join('\n')
 }
 
 /** The query plugin: mounts the session-query service provider + consumer. */

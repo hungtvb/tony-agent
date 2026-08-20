@@ -4,7 +4,7 @@ import { SessionStore } from './session/store.js'
 import { deriveMessages, assertModelVisibleIsLogged } from './session/log.js'
 import { ToolRegistry } from './tools/registry.js'
 import type { SessionQueryEngine } from './query/engine.js'
-import { createQueryTools, createGraphTools } from './query/plugin.js'
+import { createQueryTools, createGraphTools, createRouteTools } from './query/plugin.js'
 import { createGraphContextBuilder, type GraphContextBuilder } from './query/graph-context.js'
 import type { GraphExtractor } from './query/extractor.js'
 import type { LLMCompleter, LLMMessage, PermissionRequest, PermissionResolution, SessionInfo, AgentEvent } from './types.js'
@@ -59,6 +59,12 @@ export class TonyRuntime {
     // Graph wiring: mount `query:graph` into the shared registry (v0.6).
     if (options.queryEngine) {
       for (const tool of createGraphTools(options.queryEngine, 'query_graph')) {
+        if (!options.registry.has(tool.name)) options.registry.register(tool)
+      }
+    }
+    // Route wiring: mount `query:route` (v0.7).
+    if (options.queryEngine) {
+      for (const tool of createRouteTools(options.queryEngine, 'query_route')) {
         if (!options.registry.has(tool.name)) options.registry.register(tool)
       }
     }
