@@ -53,7 +53,12 @@ export function createSubagentConsumer(): ServiceConsumer<SubagentProvider> {
         description:
           'Delegate a task to a subagent with an isolated session. Use for reasoning-heavy subtasks or parallelizable work; the subagent returns its final text outcome. Requires a subagent provider to be mounted.',
         risk: 'risky' as const,
-        inputSchema: undefined as never,
+        inputSchema: z.object({
+          prompt: z.string().min(1),
+          maxToolCalls: z.number().int().positive().optional(),
+          toolFilter: z.array(z.string()).optional(),
+          sessionId: z.string().optional(),
+        }).strict(),
         parameters: {
           type: 'object',
           properties: {

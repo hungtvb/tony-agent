@@ -91,6 +91,9 @@ export class ToolRegistry {
   async execute(name: string, input: unknown, context: ToolContext): Promise<ToolResult> {
     const tool = this.tools.get(name)
     if (!tool) return { content: `Unknown tool: ${name}`, isError: true }
+    if (!tool.inputSchema) {
+      return { content: `Tool ${name} is not configured with an input schema; refusing to run.`, isError: true }
+    }
     const parsed = tool.inputSchema.safeParse(input)
     if (!parsed.success) {
       return {
@@ -98,13 +101,15 @@ export class ToolRegistry {
         isError: true,
       }
     }
+    let result: ToolResult
     try {
-      return await tool.execute(parsed.data, context)
+      result = await tool.execute(parsed.data, context)
     } catch (error) {
-      return {
+      result = {
         content: `Tool ${name} failed: ${error instanceof Error ? error.message : String(error)}`,
         isError: true,
       }
     }
+    return result
   }
 }

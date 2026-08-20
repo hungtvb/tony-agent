@@ -50,7 +50,7 @@ export function createGraphConsumer(): ServiceConsumer<SessionQueryEngine> {
         description:
           'Knowledge-graph retrieval over session history (entities/relations): local (entity-centric, related facts), global (theme-level), naive (FTS5 passthrough). Use it for multi-hop recall across sessions.',
         risk: 'read' as const,
-        inputSchema: undefined as never,
+        inputSchema: graphServiceDefinition.schema,
         parameters: {
           type: 'object',
           properties: {
@@ -144,7 +144,7 @@ export function createQueryConsumer(): ServiceConsumer<SessionQueryEngine> {
         description:
           'Full-text search over past session history (FTS5). Finds entries and sessions that mention the query — use it to recall decisions, context, and lineage from earlier work. Literal phrase semantics: keywords are treated as data.',
         risk: 'read' as const,
-        inputSchema: undefined as never,
+        inputSchema: queryServiceDefinition.schema,
         parameters: {
           type: 'object',
           properties: {
@@ -217,7 +217,11 @@ export function createRouteTools(engine: SessionQueryEngine, toolName = 'query:r
     description:
       'Graph routing over session history: maps a task/question to the graph entities in scope, the sessions that mention them, and an optional recommended session to continue (lineage-aware). Advisory — use it to decide which session/context to continue or which subagents to fan out.',
     risk: 'read' as const,
-    inputSchema: undefined as never,
+    inputSchema: z.object({
+      query: z.string().min(1),
+      sessionId: z.string().optional(),
+      limit: z.number().int().positive().max(20).optional(),
+    }),
     parameters: {
       type: 'object',
       properties: {

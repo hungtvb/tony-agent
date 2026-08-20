@@ -1,5 +1,6 @@
 import { readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { z } from 'zod'
 import type { TonyTool } from '../../types.js'
 import { resolveSafePath } from './path-utils.js'
 
@@ -20,7 +21,10 @@ export function createCodingTools(workspace: string): TonyTool<any>[] {
     name: 'write',
     description: 'Write content to a file inside the workspace (creates or overwrites).',
     risk: 'risky',
-    inputSchema: undefined as never,
+    inputSchema: z.object({
+      path: z.string().min(1),
+      content: z.string(),
+    }).strict(),
     parameters: schema({ path: stringProp('Relative path inside workspace'), content: stringProp('Full file content') }, ['path', 'content']),
     async execute(input: { path: string; content: string }) {
       try {
@@ -37,7 +41,7 @@ export function createCodingTools(workspace: string): TonyTool<any>[] {
     name: 'read',
     description: 'Read a file inside the workspace.',
     risk: 'read',
-    inputSchema: undefined as never,
+    inputSchema: z.object({ path: z.string().min(1) }).strict(),
     parameters: schema({ path: stringProp('Relative path inside workspace') }, ['path']),
     async execute(input: { path: string }) {
       try {
@@ -54,7 +58,11 @@ export function createCodingTools(workspace: string): TonyTool<any>[] {
     name: 'edit',
     description: 'Replace an exact oldString with newString in a file inside the workspace.',
     risk: 'risky',
-    inputSchema: undefined as never,
+    inputSchema: z.object({
+      path: z.string().min(1),
+      oldString: z.string().min(1),
+      newString: z.string(),
+    }).strict(),
     parameters: schema({ path: stringProp('Relative path'), oldString: stringProp('Exact text to replace'), newString: stringProp('Replacement text') }, ['path', 'oldString', 'newString']),
     async execute(input: { path: string; oldString: string; newString: string }) {
       try {
@@ -76,7 +84,7 @@ export function createCodingTools(workspace: string): TonyTool<any>[] {
     name: 'ls',
     description: 'List directory contents inside the workspace.',
     risk: 'read',
-    inputSchema: undefined as never,
+    inputSchema: z.object({ path: z.string().min(1) }).strict(),
     parameters: schema({ path: stringProp('Relative path (default .)') }, ['path']),
     async execute(input: { path: string }) {
       try {
@@ -93,7 +101,10 @@ export function createCodingTools(workspace: string): TonyTool<any>[] {
     name: 'grep',
     description: 'Find lines matching a pattern in workspace files.',
     risk: 'read',
-    inputSchema: undefined as never,
+    inputSchema: z.object({
+      pattern: z.string().min(1),
+      path: z.string().optional(),
+    }).strict(),
     parameters: schema({ pattern: stringProp('Regex pattern'), path: stringProp('Relative path (default .)') }, ['pattern']),
     async execute(input: { pattern: string; path?: string }) {
       try {
@@ -117,7 +128,10 @@ export function createCodingTools(workspace: string): TonyTool<any>[] {
     name: 'find',
     description: 'Find files by name glob inside the workspace.',
     risk: 'read',
-    inputSchema: undefined as never,
+    inputSchema: z.object({
+      pattern: z.string().min(1),
+      path: z.string().optional(),
+    }).strict(),
     parameters: schema({ pattern: stringProp('File name substring'), path: stringProp('Relative path (default .)') }, ['pattern']),
     async execute(input: { pattern: string; path?: string }) {
       try {

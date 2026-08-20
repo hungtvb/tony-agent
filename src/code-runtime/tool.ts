@@ -1,5 +1,6 @@
 import type { CodeRuntime } from './runtime.js'
 import { codeRunSchema } from './runtime.js'
+import { z } from 'zod'
 import type { ToolResult } from '../types.js'
 
 /**
@@ -13,7 +14,11 @@ export function createRunCodeTool(runtime: CodeRuntime) {
     name: 'run_code',
     description: 'Run a code snippet in an isolated sandbox. Use for computation, data transforms, and quick checks that do not require writing files.',
     risk: 'risky' as const,
-    inputSchema: undefined as never,
+    inputSchema: z.object({
+      code: z.string().min(1),
+      language: z.enum(['typescript', 'javascript']).optional(),
+      timeoutMs: z.number().int().positive().optional(),
+    }).strict(),
     parameters: codeRunSchema(),
     async execute(input: { code: string; language?: 'typescript' | 'javascript'; timeoutMs?: number }, context: { signal?: AbortSignal; sessionId: string }): Promise<ToolResult> {
       const result = await runtime.run({
