@@ -249,7 +249,7 @@ export class SessionQueryEngine {
       let relRows: Array<{ source: string; target: string; session_id?: string }>
       if (options.sessionId) {
         relRows = this.db
-          .prepare(`SELECT source, target, session_id FROM relations WHERE source IN (${placeholders}) OR target IN (${placeholders}) AND session_id = @sid`)
+          .prepare(`SELECT source, target, session_id FROM relations WHERE (source IN (${placeholders}) OR target IN (${placeholders})) AND session_id = ?`)
           .all(...batch, ...batch, options.sessionId) as Array<{ source: string; target: string; session_id: string }>
       } else {
         relRows = this.db

@@ -5,7 +5,7 @@ agent loop, LLM transport, tool system, permission policy, durable sessions,
 remote protocol, plugin system, and capability seams are all implemented in
 this repository. The browser CDP adapter is an **optional host adapter** only.
 
-Version: **0.8.0**
+Version: **0.8.1**
 
 ## Layout
 
