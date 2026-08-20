@@ -3,6 +3,7 @@ import { AgentMessage } from '../harness/messages.js'
 import { deriveMessages } from '../session/log.js'
 import type { TonyTool } from '../types.js'
 import type { SimpleMessage, SimpleResult, SimpleStreamOptions, ToolDefinition } from '../llm/model.js'
+import type { GraphContextBuilder } from '../query/graph-context.js'
 
 /** One subagent delegation request. */
 export interface SubagentRequest {
@@ -45,6 +46,8 @@ export interface InProcessSubagentOptions {
   systemPrompt?: string
   /** Optional loader of persisted session entries; enables cold resume. */
   loadSessionEntries?: SessionEntriesLoader
+  /** Graph recall builder — forwarded to every child Agent (v0.6.1). */
+  graphContext?: GraphContextBuilder
 }
 
 /**
@@ -69,6 +72,7 @@ export function createInProcessSubagentProvider(options: InProcessSubagentOption
         sessionId: childSessionId,
         systemPrompt: options.systemPrompt,
         maxToolCalls: request.maxToolCalls ?? 30,
+        ...(options.graphContext ? { graphContext: options.graphContext } : {}),
       })
       let resumed = false
       if (request.resume && options.loadSessionEntries && request.sessionId) {

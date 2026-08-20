@@ -2,6 +2,7 @@ import type { ProtocolMessage } from '../protocol/framing.js'
 import type { SimpleResult, SimpleStreamOptions } from '../llm/model.js'
 import type { Session } from '../harness/session/jsonl/repo.js'
 import { Agent } from '../harness/agent.js'
+import type { GraphContextBuilder } from '../query/graph-context.js'
 import { timingSafeEqual as nodeTimingSafeEqual } from 'node:crypto'
 
 /** Constant-time string comparison (lengths are padded to avoid leaking size). */
@@ -25,6 +26,8 @@ export interface ServerOptions {
   sessionId: string
   /** Optional shared secret. When set, the first frame must be an `auth` command carrying it. */
   authToken?: string
+  /** Graph recall builder — forwarded to the harness Agent (v0.6.1). */
+  graphContext?: GraphContextBuilder
 }
 
 /**
@@ -89,7 +92,11 @@ export class TonyServer {
   private async handleRun(input: string): Promise<void> {
     const session = await this.options.repo.open(this.options.sessionId)
     if (!this.agent) {
-      this.agent = new Agent({ complete: this.options.complete, sessionId: this.options.sessionId })
+      this.agent = new Agent({
+        complete: this.options.complete,
+        sessionId: this.options.sessionId,
+        ...(this.options.graphContext ? { graphContext: this.options.graphContext } : {}),
+      })
       this.agent.on((event) => {
         // skip internal lifecycle events the server re-emits itself
         if (event.type === 'run_end' || event.type === 'run_start' || event.type === 'agent_start' || event.type === 'agent_end') return

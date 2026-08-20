@@ -1,4 +1,5 @@
 import type { SimpleMessage, SimpleResult, SimpleStreamOptions, ToolDefinition, Usage } from '../llm/model.js'
+import type { GraphContextBuilder } from '../query/graph-context.js'
 import type { JsonSchema, TonyTool, ToolCall } from '../types.js'
 import { AgentMessage } from './messages.js'
 import type { ApprovalProvider } from '../approval/provider.js'
@@ -54,6 +55,8 @@ export interface AgentOptions {
   approval?: ApprovalProvider
   /** Per-agent tool visibility mask — shadows the global tool map without mutating it. */
   scope?: ToolScope
+  /** Graph recall builder — when present, injects a per-turn context block via transformContext (v0.6.1). */
+  graphContext?: GraphContextBuilder
 }
 
 export interface RunOutcome {
@@ -99,7 +102,6 @@ export class Agent {
   constructor(options: AgentOptions) {
     this.complete = options.complete
     this.tools = options.tools ?? new Map()
-    this.hooks = options.hooks ?? {}
     this.toolBatchMode = options.toolBatchMode ?? 'sequential'
     this.maxTurns = options.maxTurns ?? 10
     this.maxToolCalls = options.maxToolCalls ?? 50
@@ -108,6 +110,33 @@ export class Agent {
     this.stream = options.stream
     this.approval = options.approval
     this.scope = options.scope
+    // Graph recall: compose a transformContext hook that appends the recall
+    // block to the final messages. Honors a caller-provided hook by running
+    // it first (the recall block is appended after).
+    if (options.graphContext) {
+      const baseTransform = options.hooks?.transformContext
+      this.hooks = {
+        ...(options.hooks ?? {}),
+        transformContext: async (ctx) => {
+          const messages = baseTransform ? await baseTransform(ctx) : ctx.messages
+          const userMessage = messages.filter((m) => m.role === 'user').at(-1)
+          const userContent = userMessage ? (typeof userMessage.content === 'string' ? userMessage.content : '') : ''
+          const recentAssistant = messages
+            .filter((m) => m.role === 'assistant')
+            .slice(-2)
+            .map((m) => (typeof m.content === 'string' ? m.content : ''))
+          const recall = await options.graphContext!.build(userContent, recentAssistant, {
+            sessionId: ctx.sessionId,
+            maxMessages: messages.length,
+          })
+          return recall
+            ? [...messages, { role: recall.message.role, content: recall.message.content } as SimpleMessage]
+            : messages
+        },
+      }
+    } else {
+      this.hooks = options.hooks ?? {}
+    }
   }
 
   on(handler: EventHandler): void
