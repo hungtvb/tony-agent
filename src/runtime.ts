@@ -21,6 +21,8 @@ export interface TonyRuntimeOptions {
   resolvePermission?: (request: PermissionRequest) => Promise<PermissionResolution> | PermissionResolution
   onEvent?: (event: AgentEvent) => void
   limits?: TonyAgentOptions['limits']
+  /** Auto-compact (v0.8.x) — forwarded to every session's agent. */
+  compactThresholdTokens?: TonyAgentOptions['compactThresholdTokens']
   /** Session-query engine — when present, `query:search` is registered into the runtime registry. */
   queryEngine?: SessionQueryEngine
   /** Graph extractor — when present, `query:graph` is registered into the runtime registry (v0.6). */
@@ -111,6 +113,7 @@ export class TonyRuntime {
       resolvePermission: this.options.resolvePermission,
       onEvent: this.options.onEvent,
       limits: this.options.limits,
+      compactThresholdTokens: this.options.compactThresholdTokens,
       ...(this.graphContext ? { graphContext: this.graphContext } : {}),
     })
     const session: TonySession = {

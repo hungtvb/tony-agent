@@ -15,6 +15,7 @@ import type {
   ToolContext,
 } from './types.js'
 import { getSiteFromUrl, type PageAdapter } from './host/adapter.js'
+import { estimateMessageTokens } from './llm/tokens.js'
 import type { GraphContextBuilder } from './query/graph-context.js'
 
 const DEFAULT_LIMITS: AgentLimits = {
@@ -38,6 +39,48 @@ export interface TonyAgentOptions {
   onEvent?: (event: AgentEvent) => void
   /** Graph recall builder — when present, injects a per-turn context block (v0.6.1). */
   graphContext?: GraphContextBuilder
+  /**
+   * Auto-compact (v0.8.x): when set, the REQUEST sent to the LLM is trimmed to
+   * stay under this estimated token budget. The persisted transcript/history is
+   * NEVER touched — compaction only shapes what the model sees, mirroring the
+   * ephemeral graph-recall block seam.
+   */
+  compactThresholdTokens?: number
+}
+
+const CHARS_PER_TOKEN = 4 // informational; sizing uses llm/tokens.ts estimates
+
+/**
+ * Build a compacted view of `messages` whose estimated size fits `thresholdTokens`.
+ *
+ * Keeps: system head, recent tail (`keepRecent`), and — when older tool-call
+ * exchanges must be dropped — a single synthetic user note describing what was
+ * elided, so the model knows history was summarized away.
+ *
+ * Returns undefined when no compaction is needed (or possible).
+ */
+export function compactMessages(
+  messages: LLMMessage[],
+  thresholdTokens: number,
+  keepRecent = 12,
+): { messages: LLMMessage[]; beforeCount: number; afterCount: number } | undefined {
+  if (estimateMessageTokens(messages) <= thresholdTokens) return undefined
+  const keepHead = messages[0]?.role === 'system' ? 1 : 0
+  // Not enough middle to warrant compaction — trimming would lose more than it saves.
+  if (messages.length - keepHead <= keepRecent) return undefined
+  const head = messages.slice(0, keepHead)
+  const dropped = messages.slice(keepHead, messages.length - keepRecent)
+  const tail = messages.slice(messages.length - keepRecent)
+  const droppedToolCalls = dropped.reduce((sum, m) => sum + (m.toolCalls?.length ?? 0), 0)
+  const note: LLMMessage = {
+    role: 'user',
+    content:
+      `[context auto-compacted] ${dropped.length} earlier message(s)` +
+      (droppedToolCalls > 0 ? ` (${droppedToolCalls} tool call(s))` : '') +
+      ' were summarized out of this window to fit the context budget. Their durable effects are reflected in later messages.',
+  }
+  const compacted = [...head, note, ...tail]
+  return { messages: compacted, beforeCount: messages.length, afterCount: compacted.length }
 }
 
 function now(): number { return Date.now() }
@@ -74,6 +117,7 @@ export class TonyAgent {
   private readonly resolvePermission?: TonyAgentOptions['resolvePermission']
   private readonly onEvent?: TonyAgentOptions['onEvent']
   private readonly graphContext?: GraphContextBuilder
+  private readonly compactThresholdTokens?: number
   private readonly steering: string[] = []
   private activeAbort?: AbortController
   private conversation: LLMMessage[]
@@ -93,6 +137,7 @@ export class TonyAgent {
     this.resolvePermission = options.resolvePermission
     this.onEvent = options.onEvent
     this.graphContext = options.graphContext
+    this.compactThresholdTokens = options.compactThresholdTokens
     this.conversation = withSystemPrompt(options.history ?? [], this.systemPrompt)
   }
 
@@ -170,6 +215,17 @@ export class TonyAgent {
             maxMessages: messages.length,
           })
           if (recall) requestMessages = [...messages, recall.message]
+        }
+
+        // Auto-compact (v0.8.x): trim the REQUEST when it exceeds the token
+        // budget. Same ephemeral seam as graph recall — the persisted
+        // conversation (`messages`) is never mutated, only the model's view.
+        if (this.compactThresholdTokens !== undefined) {
+          const compacted = compactMessages(requestMessages, this.compactThresholdTokens)
+          if (compacted) {
+            requestMessages = compacted.messages
+            emit({ type: 'context_compact', sessionId: this.sessionId, beforeMessages: compacted.beforeCount, afterMessages: compacted.afterCount, timestamp: now() })
+          }
         }
 
         const response = await this.llm.complete({

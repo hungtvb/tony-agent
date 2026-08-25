@@ -23,6 +23,9 @@ export interface ParsedCli {
   profile?: string
   mode?: 'local' | 'global' | 'naive'
   dumpConfig: boolean
+  taskFile?: string
+  compactThresholdTokens?: number
+  noCompact: boolean
 }
 
 const POSITIONAL_COMMANDS = new Set<CliCommand>(['new', 'fork', 'switch', 'get', 'clone', 'set', 'cycle', 'prompt', 'search', 'graph'])
@@ -37,6 +40,7 @@ export function parseCliArgs(argv: string[]): ParsedCli {
     allowRisky: false,
     stream: true,
     dumpConfig: false,
+    noCompact: false,
   }
   const positional: string[] = []
   for (let index = 0; index < argv.length; index += 1) {
@@ -64,6 +68,9 @@ export function parseCliArgs(argv: string[]): ParsedCli {
     else if (arg === '--profile' && value) { parsed.profile = value; index += 1 }
     else if (arg === '--mode' && value) { parsed.mode = value as 'local' | 'global' | 'naive'; index += 1 }
     else if (arg === '--dump-config') parsed.dumpConfig = true
+    else if (arg === '--task-file' && value) { parsed.taskFile = value; index += 1 }
+    else if (arg === '--compact-tokens' && value) { const n = Number.parseInt(value, 10); if (!Number.isNaN(n) && n > 0) parsed.compactThresholdTokens = n; index += 1 }
+    else if (arg === '--no-compact') parsed.noCompact = true
     else if (arg === '--help' || arg === '-h') parsed.command = 'help'
     else if (!arg.startsWith('-')) positional.push(arg)
   }
