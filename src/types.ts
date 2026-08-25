@@ -130,6 +130,7 @@ export type AgentEvent =
   | { type: 'turn_end'; sessionId: string; turn: number; timestamp: number }
   | { type: 'agent_end'; sessionId: string; text: string; timestamp: number }
   | { type: 'error'; sessionId: string; error: string; timestamp: number }
+  | { type: 'context_compact'; sessionId: string; beforeMessages: number; afterMessages: number; timestamp: number }
 
 export interface AgentRunResult {
   sessionId: string

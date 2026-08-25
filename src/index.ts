@@ -1,4 +1,4 @@
-export { TonyAgent, defaultAgentLimits, type TonyAgentOptions, type AgentCompletion } from './agent.js'
+export { TonyAgent, defaultAgentLimits, compactMessages, type TonyAgentOptions, type AgentCompletion } from './agent.js'
 export { GraphContextBuilder, createGraphContextBuilder, extractGraphTerms, type GraphContextOptions, type GraphContextBuilderOptions, type GraphRecallHit, type GraphRecallOutput } from './query/graph-context.js'
 export { GraphPlanner } from './plan/planner.js'
 export { GroupPlanner } from './plan/group.js'

@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module'
+import { dirname } from 'node:path'
 import type { Entry } from '../harness/session/types.js'
 import type { EventHit, LineageResult, SearchCursor, SearchOptions, SearchResult, SessionHit, SessionMeta } from './types.js'
 import type { GraphEntity, GraphRelation } from './graph-types.js'
@@ -53,6 +54,10 @@ export class SessionQueryEngine {
   private readonly liveTables = new Map<string, string>()
 
   constructor(options: SessionQueryEngineOptions) {
+    // Derived index lives in the data dir — create it on demand so a fresh
+    // install (`search`/`graph` before any session exists) never crashes with
+    // "Cannot open database because the directory does not exist".
+    require('node:fs').mkdirSync(dirname(options.indexPath), { recursive: true })
     const db = new BetterSqlite3(options.indexPath)
     db.pragma('journal_mode = WAL')
     db.pragma('synchronous = NORMAL')
